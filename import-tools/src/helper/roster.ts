@@ -6,10 +6,11 @@ export type Roster = {
 }
 
 type RosterEntry = {
+    id: string;
     userName: string;
     fullName: string;
 }
-const rosterKeys = ["userName", "fullName"];
+const rosterKeys = ["id", "userName", "fullName"];
 
 function parseRoster(fileContent: string): Roster {
     let lines = fileContent.split("\n").filter(line => line.trim() !== "");
@@ -27,8 +28,9 @@ function parseRoster(fileContent: string): Roster {
     let students = lines.slice(1).map(line => {
         let values = line.split(rosterSeparator);
         return {
-            userName: values[0],
-            fullName: values[1],
+            id: values[0],
+            userName: values[1],
+            fullName: values[2],
         }
     });
     

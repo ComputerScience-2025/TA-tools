@@ -20,7 +20,7 @@ if (confirmation !== "yes") {
 
 for (let student of roster.students){
     console.log(`Student: ${student.fullName} (${student.userName})`);
-    let repoName = Naming.makeRepositoryName({courseName, sectionName, personName: student.userName});
+    let repoName = Naming.makeRepositoryName({courseName, sectionName, personName: student.userName, personID: student.id});
     let repoExists = true;
     
     try {
@@ -28,12 +28,7 @@ for (let student of roster.students){
             owner: organization,
             repo: repoName,
         });
-        if (resp.status == 200) {
-            repoExists = true;
-        }
-        else {
-            repoExists = false;
-        }
+        repoExists = resp.status == 200;
     } catch (e) {
         if (e instanceof OctokitRequestError){
             if (e.status == 404) {
@@ -59,11 +54,29 @@ for (let student of roster.students){
         });
         if (resp.status == 201) {
             console.log(`Repository "${repoName}" created`);
+            
+            // Initialize the repository with a README.md file
+            console.log("Initializing repository...");
+            let repoInitializationResp = await octokit.request("PUT /repos/{owner}/{repo}/contents/{path}", {
+                owner: organization,
+                repo: repoName,
+                path: "README.md",
+                message: "Initial commit",
+                content: Buffer.from(`# ${repoName}\n\nRepository for ${student.fullName}'s submissions`).toString('base64'),
+            });
+            
+            if (repoInitializationResp.status == 201) {
+                console.log(`Initialized repository "${repoName}" with README.md`);
+            } else {
+                console.error(`Error initializing repository, status: ${repoInitializationResp.status}`);
+                console.log(repoInitializationResp);
+            }
         }
         else {
             console.error(`Error creating repository, status: ${resp.status}`);
             console.log(resp);
         }
+        
     } catch (e) {
         console.error("Error creating repository");
         console.log(e);

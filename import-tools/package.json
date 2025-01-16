@@ -3,7 +3,8 @@
   "module": "src/index.ts",
   "type": "module",
   "scripts": {
-    "setup-repos": "bun run src/setup-repos.ts"
+    "setup-repos": "bun run src/setup-repos.ts",
+    "upload-files": "bun run src/upload-files.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
