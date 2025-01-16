@@ -1,0 +1,17 @@
+{
+  "name": "import-tools",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "setup-repos": "bun run src/setup-repos.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "octokit": "^4.1.0"
+  }
+}
