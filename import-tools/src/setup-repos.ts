@@ -1,6 +1,7 @@
 import {askForRosterFile} from "./helper/roster.ts";
 import {Naming} from "./helper/naming.ts";
 import {octokit, OctokitRequestError} from "./service.ts";
+import {Config} from "./config.ts";
 
 
 console.log("Setting up repositories for students");
@@ -8,7 +9,7 @@ console.log("Setting up repositories for students");
 let roster = await askForRosterFile();
 console.log(roster);
 
-let organization = process.env.IMPTTOOLS_GH_ORG ?? "";
+let organization = Config.getGitHubOrgName();
 let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
 let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
 console.log(`Org: "${organization}" Course name: "${courseName}", section name: "${sectionName}"`);

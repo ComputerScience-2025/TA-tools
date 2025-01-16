@@ -2,7 +2,7 @@ import {Glob} from "bun";
 
 import {CanvasHelper} from "./helper/canvas.ts";
 import {octokit, OctokitRequestError} from "./service.ts";
-import {EnvConfig} from "./config.ts";
+import {Config} from "./config.ts";
 import {Naming} from "./helper/naming.ts";
 
 
@@ -45,7 +45,7 @@ console.log(files);
 
 console.log("Getting repositories...");
 let repos = await octokit.request("GET /orgs/{org}/repos", {
-    org: EnvConfig.getGitHubOrgName(),
+    org: Config.getGitHubOrgName(),
     per_page: 100, // TODO: pagination
 });
 let repoMap = new Map<string, string>();
@@ -72,7 +72,7 @@ for (let [studentID, fileArray] of files) {
     // Step 1: Get the latest commit SHA of the base branch
     console.log(`Getting latest commit SHA for base branch: ${baseBranch}`);
     const { data: refData } = await octokit.rest.git.getRef({
-        owner: EnvConfig.getGitHubOrgName(),
+        owner: Config.getGitHubOrgName(),
         repo: repoName,
         ref: `heads/${baseBranch}`,
     });
@@ -81,7 +81,7 @@ for (let [studentID, fileArray] of files) {
     // Step 2: Create a new branch
     console.log(`Creating branch: ${newBranch}`);
     await octokit.rest.git.createRef({
-        owner: EnvConfig.getGitHubOrgName(),
+        owner: Config.getGitHubOrgName(),
         repo: repoName,
         ref: `refs/heads/${newBranch}`,
         sha: latestCommitSha,
@@ -91,7 +91,7 @@ for (let [studentID, fileArray] of files) {
     console.log("Creating blobs...");
     const blobs = await Promise.all(fileArray.map(async (fileToAdd) => {
         const { data: blobData } = await octokit.rest.git.createBlob({
-            owner: EnvConfig.getGitHubOrgName(),
+            owner: Config.getGitHubOrgName(),
             repo: repoName,
             content: Buffer.from(await Bun.file(fileToAdd.fullFN).text()).toString("base64"),
             encoding: "base64",
@@ -102,7 +102,7 @@ for (let [studentID, fileArray] of files) {
     // Step 5: Create a new tree with the blobs
     console.log("Creating tree...");
     const { data: treeData } = await octokit.rest.git.createTree({
-        owner: EnvConfig.getGitHubOrgName(),
+        owner: Config.getGitHubOrgName(),
         repo: repoName,
         tree: blobs.map(blob => ({
             path: blob.path,
@@ -115,7 +115,7 @@ for (let [studentID, fileArray] of files) {
     // Step 6: Create a new commit
     console.log("Creating commit...");
     const { data: newCommitData } = await octokit.rest.git.createCommit({
-        owner: EnvConfig.getGitHubOrgName(),
+        owner: Config.getGitHubOrgName(),
         repo: repoName,
         message: `Adding files for ${newBranch}`,
         tree: treeData.sha,
@@ -125,7 +125,7 @@ for (let [studentID, fileArray] of files) {
     // Step 7: Update the new branch to point to the new commit
     console.log("Updating branch...");
     await octokit.rest.git.updateRef({
-        owner: EnvConfig.getGitHubOrgName(),
+        owner: Config.getGitHubOrgName(),
         repo: repoName,
         ref: `heads/${newBranch}`,
         sha: newCommitData.sha,
@@ -136,7 +136,7 @@ for (let [studentID, fileArray] of files) {
     // Create a pull request
     console.log("Creating pull request...");
     const { data: pullRequest } = await octokit.rest.pulls.create({
-        owner: EnvConfig.getGitHubOrgName(),
+        owner: Config.getGitHubOrgName(),
         repo: repoName,
         title: `Assignment: ${assignmentName}`,
         head: newBranch,
