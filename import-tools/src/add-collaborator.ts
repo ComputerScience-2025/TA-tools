@@ -13,7 +13,8 @@ let organization = Config.getGitHubOrgName();
 let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
 let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
 let collaborator = prompt("Enter the collaborator's GitHub username: ") ?? "YOU_FORGOT_TO_ENTER_A_GITHUB_USERNAME";
-console.log(`Org: "${organization}" Course name: "${courseName}", section name: "${sectionName}", collaborator: "${collaborator}"`);
+let collaboratorRole = prompt("Enter the collaborator's role (pull/triage/push/maintain/admin): ") ?? "pull";
+console.log(`Org: "${organization}" Course name: "${courseName}", section name: "${sectionName}", collaborator: "${collaborator}", role: "${collaboratorRole}"`);
 
 let confirmation = prompt("Is this correct? (yes/no): ");
 if (confirmation !== "yes") {
@@ -30,7 +31,7 @@ for (let student of roster.students) {
             owner: organization,
             repo: repoName,
             username: collaborator,
-            permission: "push" // or "pull", "admin" based on your requirement
+            permission: collaboratorRole
         });
         console.log(`Added ${collaborator} to ${repoName}`);
     } catch (error) {

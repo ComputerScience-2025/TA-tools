@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "setup-repos": "bun run src/setup-repos.ts",
-    "upload-files": "bun run src/upload-files.ts"
+    "upload-files": "bun run src/upload-files.ts",
+    "add-collaborator": "bun run src/add-collaborator.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
