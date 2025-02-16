@@ -4,5 +4,6 @@ export const Config = {
             throw new Error("IMPTTOOLS_GH_ORG environment variable not set");
         }
         return process.env.IMPTTOOLS_GH_ORG;
-    }
+    },
+    inputDirectory: "./submissions",
 }

@@ -5,7 +5,8 @@
   "scripts": {
     "setup-repos": "bun run src/setup-repos.ts",
     "upload-files": "bun run src/upload-files.ts",
-    "add-collaborator": "bun run src/add-collaborator.ts"
+    "add-collaborator": "bun run src/add-collaborator.ts",
+    "test-filename-parser": "bun run src/test-filename-parser.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

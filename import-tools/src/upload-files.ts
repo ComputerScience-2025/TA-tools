@@ -6,16 +6,8 @@ import {Config} from "./config.ts";
 import {Naming} from "./helper/naming.ts";
 
 
-const inputDirectory = "./submissions";
-
-
-function fixFileName(originalName: string) {
-    // turn the filename from "ABC-1.cs" to "ABC.cs"
-    return originalName;
-}
-
 console.log("Uploading files to repositories...");
-console.log(`Input directory: ${inputDirectory}`);
+console.log(`Input directory: ${Config.inputDirectory}`);
 let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
 let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
 let assignmentName = prompt("Enter the assignment name: ") ?? "YOU_FORGOT_TO_ENTER_AN_ASSIGNMENT_NAME";
@@ -24,7 +16,7 @@ console.log(`Course: ${courseName}, Section: ${sectionName}, Assignment: ${assig
 
 let files = new Map<string, {fullFN: string, actualFN: string}[]>();
 
-for await (const filepath of new Glob(`${inputDirectory}/*`).scan(".")) {
+for await (const filepath of new Glob(`${Config.inputDirectory}/*`).scan(".")) {
     let separator = filepath.indexOf("/") > -1 ? "/" : "\\"; // Windows uses backslash, Unix uses forward slash
     let filename = filepath.split(separator).pop();
     console.log(filename); // => "index.ts"
@@ -38,7 +30,7 @@ for await (const filepath of new Glob(`${inputDirectory}/*`).scan(".")) {
     if (!files.has(parsed.personID)) {
         files.set(parsed.personID, []);
     }
-    files.get(parsed.personID)?.push({fullFN: filepath, actualFN: fixFileName(parsed.actualFilename)});
+    files.get(parsed.personID)?.push({fullFN: filepath, actualFN: CanvasHelper.fixFileName(parsed.actualFilename)});
 }
 
 console.log(files);
@@ -56,6 +48,7 @@ for (let repo of repos.data) {
     }
 }
 
+let processedCount = 0;
 for (let [studentID, fileArray] of files) {
     console.log(`Student ID: ${studentID}`);
     let repoName = repoMap.get(studentID);
@@ -146,5 +139,7 @@ for (let [studentID, fileArray] of files) {
     
     console.log(`Pull request created: ${pullRequest.html_url}`);
     console.log(`Finished processing student ID: ${studentID}`);
+    processedCount++;
 }
 
+console.log(`Processed ${processedCount} students`);
