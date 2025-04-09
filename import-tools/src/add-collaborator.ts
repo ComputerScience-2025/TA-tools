@@ -1,4 +1,4 @@
-import {askForRosterFile} from "./helper/roster.ts";
+import {askForInternalRosterFile} from "./helper/roster-internal.ts";
 import {Config} from "./config.ts";
 import {octokit} from "./service.ts";
 import {Naming} from "./helper/naming.ts";
@@ -12,7 +12,7 @@ enum InviteeType {
 
 console.log("Add a collaborator to repositories based on roster");
 
-let roster = await askForRosterFile();
+let roster = await askForInternalRosterFile();
 console.log(roster);
 
 let organization = Config.getGitHubOrgName();
