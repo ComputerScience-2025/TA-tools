@@ -21,6 +21,7 @@
 		"vite": "^7.1.7"
 	},
 	"dependencies": {
+		"bulma": "^1.0.4",
 		"my-svelte-components": "^0.1.0",
 		"octokit": "^5.0.3",
 		"svelte-persisted-store": "^0.12.0"

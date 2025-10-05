@@ -1,3 +1,7 @@
+<svelte:head>
+    <title>Comments Score Calculator</title>
+</svelte:head>
+
 <script lang="ts">
     import {ArbitraryResultsTable} from "my-svelte-components";
 
@@ -61,7 +65,7 @@
     }
 </script>
 
-<h1>Comments Score Calculator</h1>
+<h1 class="title">Comments Score Calculator</h1>
 
 <hr>
 
