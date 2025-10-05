@@ -16,7 +16,13 @@
     let pull_number = $state(0);
 
     let selectedCommentsIndexForTabulation: number[] = $state([]);
-    let score = $state(0);
+    let score: number = $derived(selectedCommentsIndexForTabulation.reduce((prev, curr) => {
+        let comment = pullRequestReviewComments[curr];
+        if (comment && comment.score !== undefined) {
+            return prev + comment.score;
+        }
+        return prev;
+    }, 0));
 
     function analyzePullRequestLink(){
         let resp  = GitHubWrapper.analyzePullRequestLink(pullRequestLink);
@@ -32,8 +38,8 @@
 
     async function getReviewCommentsButton(comment_id: number){
         pullRequestReviewComments = await GitHubWrapper.listCommentsForReview(owner, repo, pull_number, comment_id);
-        calculateIndividualScores();
         selectedCommentsIndexForTabulation = [];
+        calculateIndividualScores();
     }
 
     function calculateIndividualScores(){
@@ -52,18 +58,6 @@
         }
 
     }
-
-    $effect(() => {
-        console.log("Selected comments changed, recalculating total score");
-        let totalScore = 0;
-        for (let index of selectedCommentsIndexForTabulation) {
-            let comment = pullRequestReviewComments[index];
-            if (comment.score !== undefined) {
-                totalScore += comment.score;
-            }
-        }
-        score = totalScore;
-    });
 </script>
 
 <h1 class="title">Comments Score Calculator</h1>
@@ -89,7 +83,6 @@
             <tr>
                 <th>Reviewer</th>
                 <th>State</th>
-                <th>Body</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -98,7 +91,6 @@
                 <tr>
                     <td>{review.person}</td>
                     <td>{review.status}</td>
-                    <td>{review.content}</td>
                     <td><button class="button" onclick={() => getReviewCommentsButton(review.review_id)}>Get Comments</button></td>
                 </tr>
             {/each}
