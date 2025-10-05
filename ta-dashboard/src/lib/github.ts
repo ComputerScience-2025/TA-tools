@@ -39,14 +39,20 @@ export const GitHubWrapper = {
             content: review.body || "",
         }));
     },
-    listCommentsForReview: async (owner: string, repo: string, pull_number: number, review_id: number) => {
-        return await octokit.rest.pulls.listCommentsForReview({
+    listCommentsForReview: async (owner: string, repo: string, pull_number: number, review_id: number): Promise<GitHubPullRequestReviewCommentEntry[]> => {
+        return (await octokit.rest.pulls.listCommentsForReview({
             owner,
             repo,
             pull_number,
             review_id: review_id,
             per_page: 100,
-        });
+        })).data.map(comment => ({
+            review_id: review_id,
+            comment_id: comment.id,
+            person: comment.user?.login || "unknown",
+            content: comment.body || "",
+            filepath: comment.path || "unknown",
+        }));
     }
 }
 
@@ -55,4 +61,12 @@ export type GitHubPullRequestReviewEntry = {
     person: string,
     status: string,
     content: string,
+}
+
+export type GitHubPullRequestReviewCommentEntry = {
+    review_id: number,
+    comment_id: number,
+    person: string,
+    content: string,
+    filepath: string,
 }
