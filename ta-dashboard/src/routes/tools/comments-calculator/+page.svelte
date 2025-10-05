@@ -32,7 +32,8 @@
 
     async function getReviewCommentsButton(comment_id: number){
         pullRequestReviewComments = await GitHubWrapper.listCommentsForReview(owner, repo, pull_number, comment_id);
-        calculateIndividualScores()
+        calculateIndividualScores();
+        selectedCommentsIndexForTabulation = [];
     }
 
     function calculateIndividualScores(){
@@ -50,10 +51,10 @@
             comment.score = scores.reduce((acc, score) => acc + parseFloat(score), 0);
         }
 
-        calculateAllScores();
     }
 
-    function calculateAllScores() {
+    $effect(() => {
+        console.log("Selected comments changed, recalculating total score");
         let totalScore = 0;
         for (let index of selectedCommentsIndexForTabulation) {
             let comment = pullRequestReviewComments[index];
@@ -62,7 +63,7 @@
             }
         }
         score = totalScore;
-    }
+    });
 </script>
 
 <h1 class="title">Comments Score Calculator</h1>
@@ -73,7 +74,7 @@
     Pull Request Link:
     <input type="text" bind:value={pullRequestLink} size="50">
 
-    <button onclick={getReviewsButton}>Get Reviews</button>
+    <button class="button" onclick={getReviewsButton}>Get Reviews</button>
 
     Owner: {owner} Repo: {repo} PR Number: {pull_number}
 </p>
@@ -82,7 +83,7 @@
 
 <section>
     {#if pullRequestReviews.length > 0}
-        <h2>Reviews</h2>
+        <h4 class="title is-4">Reviews</h4>
         <table>
             <thead>
             <tr>
@@ -98,7 +99,7 @@
                     <td>{review.person}</td>
                     <td>{review.status}</td>
                     <td>{review.content}</td>
-                    <td><button onclick={() => getReviewCommentsButton(review.review_id)}>Get Comments</button></td>
+                    <td><button class="button" onclick={() => getReviewCommentsButton(review.review_id)}>Get Comments</button></td>
                 </tr>
             {/each}
             </tbody>
@@ -119,7 +120,7 @@
                 {elementType: "p", label: "Score", dataKey: "score"},
             ]}
             selectRows={true}
-            selectedRowsIndex={selectedCommentsIndexForTabulation}
+            bind:selectedRowsIndex={selectedCommentsIndexForTabulation}
     />
-    <p>Total Score: {score}</p>
+    <p><b>Total Score: {score}</b></p>
 </section>
