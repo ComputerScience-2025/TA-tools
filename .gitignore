@@ -1,1 +1,5 @@
+# generated files
+**/.idea/copilot*.xml
+
+# data
 import-tools/updated_roster.json
