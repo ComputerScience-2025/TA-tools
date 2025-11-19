@@ -3,6 +3,7 @@ import {Glob} from "bun";
 import {OpenRouter} from "@openrouter/sdk";
 
 import {CONFIG} from "./util/config.ts";
+import {FilePayloadGenerator} from "./util/file-payload.ts";
 
 
 console.log("existence-checker.ts");
@@ -25,14 +26,8 @@ if (files.length === 0) {
     throw new Error("No files found");
 }
 
-console.log("C# files found:", files);
-let fileContentsPayload = [];
-for (const file of files) {
-    // console.log(`--- ${file} ---`);
-    const content = await Bun.file(file).text();
-    // console.log(content);
-    fileContentsPayload.push(file + "\n```csharp\n" + content + "\n```");
-}
+console.log("Files found:", files);
+const fileContentsPayload = await FilePayloadGenerator.generatePayloads(files);
 
 console.log("Sending chat completion request...");
 let startTime = Date.now();
