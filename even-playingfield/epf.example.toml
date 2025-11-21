@@ -1,12 +1,19 @@
 [openrouter]
 api_key = ""
-model = "openai/gpt-oss-120b:exacto"
+model = ""
 
-[prompt]
-existence_checker = """You are a Computer Science grader for an Object-Oriented Development class.
-You are check part of an assignment submission where the "driver" code should invoke all methods of the classes provided in the assignment, directly or indirectly.
-First analyze and extract all public method (and public getters and setters) of the following classes: [`SensorBank`, `SensorIndep`, `Controller`], then identify methods could be indirectly invoked via `Controller` class methods.
-Then analyze the following driver code and determine if all public methods of the classes have been invoked, either directly or indirectly.
-Respond (as Markdown) with a list of all public methods extracted previously, indicating for each method whether it was invoked or not in the driver code, including the line number(s) where it was invoked.
-Use emoji ✅ for invoked methods and ❌ for not invoked methods. Make sure the table is well formatted in Markdown.
-"""
+[hyperparameters]
+max_completion_tokens = 20000
+temperature = 0.9
+top_p = 1
+frequency_penalty = 0
+presence_penalty = 0
+reasoning_effort = "high"
+
+[[basic_workflows]]
+slug = "read-all-files-in-directory"
+search_directory = "."
+file_glob = "*.cs"
+excluded_files = ["Program.cs"]
+prompt = ""
+output_filename = "existence-checker-output.epf.md"

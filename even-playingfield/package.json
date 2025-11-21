@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "bun build src/index.ts --compile  --outfile build/epf"
+    "build": "bun build src/index.ts --compile  --outfile build/epf",
+    "config-gen": "bun run src/generate-config.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -13,6 +14,8 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@openrouter/sdk": "^0.1.11"
+    "@openrouter/sdk": "^0.1.11",
+    "smol-toml": "^1.5.2",
+    "zod-defaults": "^0.2.3"
   }
 }
