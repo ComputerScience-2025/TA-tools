@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "bun build src/existence-checker.ts --compile  --outfile build/epf"
+    "build": "bun build src/index.ts --compile  --outfile build/epf"
   },
   "devDependencies": {
     "@types/bun": "latest"
