@@ -4,6 +4,7 @@
 
 <script lang="ts">
     import {ArbitraryResultsTable} from "my-svelte-components";
+    import {toast} from "@zerodevx/svelte-toast";
 
     import {GitHubWrapper} from "$lib/github";
     import type {GitHubPullRequestReviewCommentEntry, GitHubPullRequestReviewEntry} from "$lib/github";
@@ -25,10 +26,14 @@
     }, 0));
 
     function analyzePullRequestLink(){
-        let resp  = GitHubWrapper.analyzePullRequestLink(pullRequestLink);
-        owner = resp.owner;
-        repo = resp.repo;
-        pull_number = resp.pull_number;
+        try {
+            let resp  = GitHubWrapper.analyzePullRequestLink(pullRequestLink);
+            owner = resp.owner;
+            repo = resp.repo;
+            pull_number = resp.pull_number;
+        } catch (e) {
+            toast.push("Failed to analyze Pull Request link." + (e instanceof Error ? ` ${e.message}` : ""));
+        }
     }
 
     async function getReviewsButton() {

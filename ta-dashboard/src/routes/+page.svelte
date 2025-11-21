@@ -1,4 +1,8 @@
 <h1 class="title is-center">TA Dashboard</h1>
 
-<a href="/settings">Settings</a>
-<a href="/tools/comments-calculator">Comments Score Calculator</a>
+<div class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="/settings">Settings</a></li>
+        <li><a href="/tools/comments-calculator">Comments Score Calculator</a></li>
+    </ul>
+</div>
