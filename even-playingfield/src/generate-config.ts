@@ -1,14 +1,18 @@
 import {stringify} from "smol-toml";
 import {getDefaultsForSchema} from "zod-defaults";
 
-import {ConfigSchema, ConfigWorkflowEntrySchema} from "./util/config-schema.ts";
+import {ConfigSchema, ConfigWorkflowEntrySchema, FileSearchEntrySchema} from "./util/config-schema.ts";
 
 
 console.log("generate-config.ts");
 
-const defaultConfig = getDefaultsForSchema(ConfigSchema);
-const defaultBasicWorkflowEntry = getDefaultsForSchema(ConfigWorkflowEntrySchema);
+let defaultConfig = getDefaultsForSchema(ConfigSchema);
+let defaultBasicWorkflowEntry = getDefaultsForSchema(ConfigWorkflowEntrySchema);
+let defaultFileSearchEntry = getDefaultsForSchema(FileSearchEntrySchema);
+defaultBasicWorkflowEntry.input_files_searches = [defaultFileSearchEntry];
 defaultConfig.basic_workflows = [defaultBasicWorkflowEntry];
+
+console.log(defaultConfig);
 
 const tomlString = stringify(defaultConfig);
 const outputFilename = "epf.example.toml";

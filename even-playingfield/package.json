@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "build": "bun build src/index.ts --compile  --outfile build/epf",
-    "config-gen": "bun run src/generate-config.ts"
+    "config-gen": "bun run --console-depth 4 src/generate-config.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

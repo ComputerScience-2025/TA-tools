@@ -22,24 +22,27 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
         console.warn(`[${workflow.slug}]`, ...args);
     }
     
-    const fileExclusionsSet = new Set(workflow.excluded_files);
-    const glob = new Glob(workflow.file_glob);
-    let files = [];
-    for await (const file of glob.scan(workflow.search_directory)) {
-        if (fileExclusionsSet.has(file)) {
-            log(`Excluding file: ${file}`);
-            continue;
-        }
+    let allFiles = [];
+    for (const fileSearch of workflow.input_files_searches) {
+        const fileExclusionsSet = new Set(fileSearch.excluded_files);
+        const glob = new Glob(fileSearch.file_glob);
         
-        files.push(file);
+        for await (const file of glob.scan(fileSearch.search_directory)) {
+            if (fileExclusionsSet.has(file)) {
+                log(`Excluding file: ${file}`);
+                continue;
+            }
+            allFiles.push(file);
+        }
     }
-    if (files.length === 0) {
-        warn(`No files found for workflow in "${workflow.search_directory}" directory, skipping...`);
+    
+    if (allFiles.length === 0) {
+        warn(`No files found for workflow, skipping...`);
         return;
     }
     
-    log("Files found:", files);
-    const fileContentsPayload = await FilePayloadGenerator.generatePayloads(files);
+    log("Files found:", allFiles);
+    const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
     
     log("Sending chat completion request...");
     let startTime = Date.now();

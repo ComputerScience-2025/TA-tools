@@ -1,12 +1,16 @@
 import {z} from "zod";
 
+export const FileSearchEntrySchema = z.object({
+    file_glob: z.string().min(1),
+    search_directory: z.string().default("."),
+    excluded_files: z.array(z.string()).default([]),
+});
+
 export const ConfigWorkflowEntrySchema = z.object({
     slug: z.string(),
-    search_directory: z.string(),
-    file_glob: z.string(),
-    excluded_files: z.array(z.string()).default([]),
+    input_files_searches: z.array(FileSearchEntrySchema).default([]),
+    output_filename: z.string().min(1),
     prompt: z.string(),
-    output_filename: z.string(),
 });
 
 export const ConfigSchema = z.object({

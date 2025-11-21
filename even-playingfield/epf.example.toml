@@ -11,9 +11,11 @@ presence_penalty = 0
 reasoning_effort = "high"
 
 [[basic_workflows]]
-slug = "read-all-files-in-directory"
-search_directory = "."
-file_glob = "*.cs"
-excluded_files = ["Program.cs"]
+slug = ""
+output_filename = ""
 prompt = ""
-output_filename = "existence-checker-output.epf.md"
+
+[[basic_workflows.input_files_searches]]
+file_glob = ""
+search_directory = "."
+excluded_files = []
