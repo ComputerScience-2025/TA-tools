@@ -1,6 +1,6 @@
 <script lang="ts">
     import {toast} from "@zerodevx/svelte-toast";
-    import {persisted} from "svelte-persisted-store";
+    import {goto} from "$app/navigation";
 
     let repositoryBaseURL = $state("");
     let pullRequestNumber = $state("");
@@ -28,6 +28,21 @@
             openToNewTal(branchURL);
         }
     }
+
+    function openCommentScoreCalculator() {
+        if (!repositoryBaseURL) {
+            toast.push("Repository Base URL is required.");
+            return;
+        }
+
+        if (!pullRequestNumber){
+            toast.push("Pull Request Number is required to open Comments Score Calculator.");
+            return;
+        }
+
+        const calculatorURL = `/tools/comments-calculator?pr_link=${encodeURIComponent(`${repositoryBaseURL}/pull/${pullRequestNumber}`)}`;
+        goto(calculatorURL);
+    }
 </script>
 
 <h1 class="title">Links Opener</h1>
@@ -45,3 +60,4 @@
 </p>
 
 <button class="button" onclick={openLinksButton}>Open Links</button>
+<button class="button" onclick={openCommentScoreCalculator}>Open Comments Score Calculator</button>

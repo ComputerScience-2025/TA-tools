@@ -3,6 +3,8 @@
 </svelte:head>
 
 <script lang="ts">
+    import {page} from "$app/state";
+
     import {ArbitraryResultsTable} from "my-svelte-components";
     import {toast} from "@zerodevx/svelte-toast";
 
@@ -24,6 +26,13 @@
         }
         return prev;
     }, 0));
+
+    $effect(() => {
+        let prLink = page.url.searchParams.get("pr_link");  // TODO: not hardcode the param name
+        if (prLink) {
+            pullRequestLink = prLink;
+        }
+    });
 
     function analyzePullRequestLink(){
         try {
@@ -121,3 +130,7 @@
     />
     <p><b>Total Score: {score}</b></p>
 </section>
+
+<hr>
+
+<a href="/tools/links-opener">Back to Links Opener</a>
