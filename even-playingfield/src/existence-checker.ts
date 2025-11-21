@@ -33,7 +33,7 @@ console.log("Sending chat completion request...");
 let startTime = Date.now();
 let completion = await openRouter.chat.send({
     model: CONFIG.openrouter.model,
-    maxCompletionTokens: 10000,
+    maxCompletionTokens: 20000,
     messages: [
         {
             role: "system",
@@ -51,6 +51,11 @@ let completion = await openRouter.chat.send({
     ],
     stream: false,
     frequencyPenalty: 0,
+    presencePenalty: 0,
+    temperature: 0.9,
+    reasoning: {
+        effort: "high",
+    },
 });
 console.log(`Completion response generated in ${(Date.now() - startTime) / 1000} seconds`);
 console.log(completion);
