@@ -7,8 +7,8 @@ import {ConfigSchema, ConfigWorkflowEntrySchema} from "./util/config-schema.ts";
 console.log("generate-config.ts");
 
 const defaultConfig = getDefaultsForSchema(ConfigSchema);
-const defaultWorkflowEntry = getDefaultsForSchema(ConfigWorkflowEntrySchema);
-defaultConfig.basic_workflows = [defaultWorkflowEntry];
+const defaultBasicWorkflowEntry = getDefaultsForSchema(ConfigWorkflowEntrySchema);
+defaultConfig.basic_workflows = [defaultBasicWorkflowEntry];
 
 const tomlString = stringify(defaultConfig);
 const outputFilename = "epf.example.toml";

@@ -13,29 +13,35 @@ const openRouter = new OpenRouter({
 });
 
 
-async function executeWorkflow(workflow: typeof CONFIG.basic_workflows[number]) {
+async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[number]) {
     console.log(`Executing workflow: ${workflow.slug}`);
+    const log = (...args: Parameters<typeof console.log>) => {
+        console.log(`[${workflow.slug}]`, ...args);
+    }
+    const warn = (...args: Parameters<typeof console.warn>) => {
+        console.warn(`[${workflow.slug}]`, ...args);
+    }
     
     const fileExclusionsSet = new Set(workflow.excluded_files);
     const glob = new Glob(workflow.file_glob);
     let files = [];
     for await (const file of glob.scan(workflow.search_directory)) {
         if (fileExclusionsSet.has(file)) {
-            console.log(`Excluding file: ${file}`);
+            log(`Excluding file: ${file}`);
             continue;
         }
         
         files.push(file);
     }
     if (files.length === 0) {
-        console.warn(`No files found for workflow in "${workflow.search_directory}" directory, skipping...`);
+        warn(`No files found for workflow in "${workflow.search_directory}" directory, skipping...`);
         return;
     }
     
-    console.log("Files found:", files);
+    log("Files found:", files);
     const fileContentsPayload = await FilePayloadGenerator.generatePayloads(files);
     
-    console.log("Sending chat completion request...");
+    log("Sending chat completion request...");
     let startTime = Date.now();
     let completion = await openRouter.chat.send({
         model: CONFIG.openrouter.model,
@@ -63,21 +69,39 @@ async function executeWorkflow(workflow: typeof CONFIG.basic_workflows[number]) 
             effort: CONFIG.hyperparameters.reasoning_effort,
         },
     });
-    console.log(`Completion response generated in ${(Date.now() - startTime) / 1000} seconds`);
-    console.log(completion);
-    console.log(completion.usage);
-    console.log(completion.choices);
+    log(`Completion response generated in ${(Date.now() - startTime) / 1000} seconds`);
+    log(completion);
+    log(completion.usage);
+    log(completion.choices);
     if (completion.choices.length < 1){
-        console.warn("No choices returned from completion");
+        warn("No choices returned from completion");
     }
     const completionText = completion.choices[0]?.message.content?.toString() ?? "";
     const outputFileName = workflow.output_filename;
-    await Bun.file(outputFileName).write(completionText);
+    await Bun.write(outputFileName, completionText);
 }
 
-// TODO: Parallelize workflows?
-for (const workflow of CONFIG.basic_workflows) {
-    await executeWorkflow(workflow);
+// Parallelize workflows with Promise.allSettled
+const workflows = CONFIG.basic_workflows;
+const results = await Promise.allSettled(
+    workflows.map((workflow) => executeBasicWorkflow(workflow))
+);
+
+// Summarize with indices to include slugs in failure logs
+const failedIndices: number[] = [];
+const succeededIndices: number[] = [];
+results.forEach((r, i) => {
+    if (r.status === "rejected") failedIndices.push(i);
+    else succeededIndices.push(i);
+});
+
+console.log(`Workflows completed. Succeeded: ${succeededIndices.length}; Failed: ${failedIndices.length}`);
+if (failedIndices.length > 0) {
+    failedIndices.forEach((i) => {
+        const r = results[i] as PromiseRejectedResult;
+        const slug = workflows[i]?.slug ?? `#${i + 1}`;
+        console.warn(`Workflow '${slug}' failed:`, r.reason);
+    });
 }
 
 console.log("index.ts done");
