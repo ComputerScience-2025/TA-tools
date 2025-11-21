@@ -22,26 +22,30 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
         console.warn(`[${workflow.slug}]`, ...args);
     }
     
-    let allFiles = [];
-    for (const fileSearch of workflow.input_files_searches) {
-        const fileExclusionsSet = new Set(fileSearch.excluded_files);
-        const glob = new Glob(fileSearch.file_glob);
-        
-        for await (const file of glob.scan(fileSearch.search_directory)) {
-            if (fileExclusionsSet.has(file)) {
-                log(`Excluding file: ${file}`);
-                continue;
-            }
-            allFiles.push(file);
-        }
-    }
+    let allFiles = (
+        await Promise.all(
+            workflow.input_files_searches.map(async (fileSearch) => {
+                const fileExclusionsSet = new Set(fileSearch.excluded_files);
+                const glob = new Glob(fileSearch.file_glob);
+                const matches: string[] = [];
+                for await (const file of glob.scan(fileSearch.search_directory)) {
+                    if (fileExclusionsSet.has(file)) {
+                        log(`Excluding file: ${file}`);
+                        continue;
+                    }
+                    matches.push(file);
+                }
+                log(`Found ${matches.length} files for search: ${fileSearch.file_glob} in ${fileSearch.search_directory}`, matches);
+                return matches;
+            })
+        )
+    ).flat();
     
     if (allFiles.length === 0) {
         warn(`No files found for workflow, skipping...`);
         return;
     }
-    
-    log("Files found:", allFiles);
+    log(`Found ${allFiles.length} files for workflow`);
     const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
     
     log("Sending chat completion request...");
