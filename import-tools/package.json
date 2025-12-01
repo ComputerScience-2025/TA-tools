@@ -5,7 +5,7 @@
   "scripts": {
     "setup-repos": "bun run src/setup-repos.ts",
     "upload-files": "bun run src/upload-files.ts",
-    "add-collaborator": "bun run src/add-collaborator.ts",
+    "upload-base-files": "bun run src/upload-base-files.ts",
     "test-filename-parser": "bun run src/test-filename-parser.ts",
     "roster-convert": "bun run src/roster-convert.ts",
     "roster-export": "bun run src/roster-export.ts"

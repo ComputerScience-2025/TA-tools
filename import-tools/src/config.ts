@@ -6,4 +6,5 @@ export const Config = {
         return process.env.IMPTTOOLS_GH_ORG;
     },
     submissionInputDirectory: "./submissions",
+    repoBaseFilesDirectory: "./repo_base_files",
 }

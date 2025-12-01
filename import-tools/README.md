@@ -29,9 +29,15 @@ Finally, export the roster with repository links for spreadsheet
 bun run roster-export
 ```
 
-## For each assignment
-To import submission files from Canvas:
-First need to create a `./submissions` directory and download the submissions from Canvas into that directory. Then run:
+## Uploading Base Files to Repositories
+To upload base files (e.g., starter code, assignment templates) to all student repositories:
+
+1. Place the files you want to upload in the `./repo_base_files` directory
+2. The directory structure will be preserved when uploading
+3. Run the script:
 ```bash
-bun run import-submissions
+bun run upload-base-files
 ```
+
+This will upload the files to the main branch of each student's repository. Existing files in the repository will be preserved, and only files present in `./repo_base_files` will be overwritten.
+
