@@ -7,7 +7,7 @@ import {Naming} from "./helper/naming.ts";
 
 
 console.log("Uploading files to repositories...");
-console.log(`Input directory: ${Config.inputDirectory}`);
+console.log(`Input directory: ${Config.submissionInputDirectory}`);
 let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
 let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
 let assignmentName = prompt("Enter the assignment name: ") ?? "YOU_FORGOT_TO_ENTER_AN_ASSIGNMENT_NAME";
@@ -16,7 +16,7 @@ console.log(`Course: ${courseName}, Section: ${sectionName}, Assignment: ${assig
 
 let files = new Map<string, {fullFN: string, actualFN: string}[]>();
 
-for await (const filepath of new Glob(`${Config.inputDirectory}/*`).scan(".")) {
+for await (const filepath of new Glob(`${Config.submissionInputDirectory}/*`).scan(".")) {
     let separator = filepath.indexOf("/") > -1 ? "/" : "\\"; // Windows uses backslash, Unix uses forward slash
     let filename = filepath.split(separator).pop();
     console.log(filename); // => "index.ts"
@@ -80,6 +80,15 @@ for (let [studentID, fileArray] of files) {
         sha: latestCommitSha,
     });
     
+    // Step 3: Get the base tree from the latest commit
+    console.log("Getting base tree...");
+    const { data: baseCommitData } = await octokit.rest.git.getCommit({
+        owner: Config.getGitHubOrgName(),
+        repo: repoName,
+        commit_sha: latestCommitSha,
+    });
+    const baseTreeSha = baseCommitData.tree.sha;
+    
     // Step 4: Create blobs for each file
     console.log("Creating blobs...");
     const blobs = await Promise.all(fileArray.map(async (fileToAdd) => {
@@ -92,11 +101,12 @@ for (let [studentID, fileArray] of files) {
         return { path: `${assignmentName}/${fileToAdd.actualFN}`, sha: blobData.sha };
     }));
     
-    // Step 5: Create a new tree with the blobs
+    // Step 5: Create a new tree with the blobs, based on the existing tree
     console.log("Creating tree...");
     const { data: treeData } = await octokit.rest.git.createTree({
         owner: Config.getGitHubOrgName(),
         repo: repoName,
+        base_tree: baseTreeSha,  // This preserves existing files
         tree: blobs.map(blob => ({
             path: blob.path,
             mode: "100644",

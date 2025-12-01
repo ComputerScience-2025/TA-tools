@@ -3,7 +3,7 @@ import {CanvasHelper} from "./helper/canvas.ts";
 import {Config} from "./config.ts";
 
 
-for await (const filepath of new Glob(`${Config.inputDirectory}/*`).scan(".")) {
+for await (const filepath of new Glob(`${Config.submissionInputDirectory}/*`).scan(".")) {
     let separator = filepath.indexOf("/") > -1 ? "/" : "\\"; // Windows uses backslash, Unix uses forward slash
     let filename = filepath.split(separator).pop();
     // console.log(filename); // => "index.ts"
