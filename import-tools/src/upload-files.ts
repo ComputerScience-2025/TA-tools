@@ -1,7 +1,7 @@
 import {Glob} from "bun";
 
 import {CanvasHelper} from "./helper/canvas.ts";
-import {octokit, OctokitRequestError} from "./service.ts";
+import {octokit} from "./service.ts";
 import {Config} from "./config.ts";
 import {Naming} from "./helper/naming.ts";
 
@@ -71,7 +71,32 @@ for (let [studentID, fileArray] of files) {
     });
     const latestCommitSha = refData.object.sha;
     
-    // Step 2: Create a new branch
+    // Step 2: Check if branch already exists and delete it
+    console.log(`Checking if branch ${newBranch} already exists...`);
+    try {
+        await octokit.rest.git.getRef({
+            owner: Config.GitHub.organizationName(),
+            repo: repoName,
+            ref: `heads/${newBranch}`,
+        });
+        // Branch exists, delete it
+        console.log(`Branch ${newBranch} already exists. Deleting...`);
+        await octokit.rest.git.deleteRef({
+            owner: Config.GitHub.organizationName(),
+            repo: repoName,
+            ref: `heads/${newBranch}`,
+        });
+        console.log(`Branch ${newBranch} deleted successfully.`);
+    } catch (error) {
+        // Branch doesn't exist, which is fine
+        if (error instanceof Error && 'status' in error && error.status === 404) {
+            console.log(`Branch ${newBranch} does not exist. Proceeding to create it.`);
+        } else {
+            throw error;
+        }
+    }
+    
+    // Step 3: Create a new branch
     console.log(`Creating branch: ${newBranch}`);
     await octokit.rest.git.createRef({
         owner: Config.GitHub.organizationName(),
@@ -80,7 +105,7 @@ for (let [studentID, fileArray] of files) {
         sha: latestCommitSha,
     });
     
-    // Step 3: Get the base tree from the latest commit
+    // Step 4: Get the base tree from the latest commit
     console.log("Getting base tree...");
     const { data: baseCommitData } = await octokit.rest.git.getCommit({
         owner: Config.GitHub.organizationName(),
@@ -89,7 +114,7 @@ for (let [studentID, fileArray] of files) {
     });
     const baseTreeSha = baseCommitData.tree.sha;
     
-    // Step 4: Create blobs for each file
+    // Step 5: Create blobs for each file
     console.log("Creating blobs...");
     const blobs = await Promise.all(fileArray.map(async (fileToAdd) => {
         const { data: blobData } = await octokit.rest.git.createBlob({
@@ -101,7 +126,7 @@ for (let [studentID, fileArray] of files) {
         return { path: `${assignmentName}/${fileToAdd.actualFN}`, sha: blobData.sha };
     }));
     
-    // Step 5: Create a new tree with the blobs, based on the existing tree
+    // Step 6: Create a new tree with the blobs, based on the existing tree
     console.log("Creating tree...");
     const { data: treeData } = await octokit.rest.git.createTree({
         owner: Config.GitHub.organizationName(),
@@ -115,7 +140,7 @@ for (let [studentID, fileArray] of files) {
         })),
     });
     
-    // Step 6: Create a new commit
+    // Step 7: Create a new commit
     console.log("Creating commit...");
     const { data: newCommitData } = await octokit.rest.git.createCommit({
         owner: Config.GitHub.organizationName(),
@@ -125,7 +150,7 @@ for (let [studentID, fileArray] of files) {
         parents: [latestCommitSha],
     });
     
-    // Step 7: Update the new branch to point to the new commit
+    // Step 8: Update the new branch to point to the new commit
     console.log("Updating branch...");
     await octokit.rest.git.updateRef({
         owner: Config.GitHub.organizationName(),
