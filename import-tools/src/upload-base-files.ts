@@ -169,7 +169,7 @@ for (let student of roster.students) {
             message: `Update base files`,
             author: {
                 name: Config.GitHub.username(),
-                email: "1@2.3"
+                email: Config.GitHub.commitEmail(),
             }
         });
         console.log(`✓ Commit created with SHA: ${commitSha}`);
