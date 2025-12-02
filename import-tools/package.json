@@ -17,7 +17,9 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@isomorphic-git/lightning-fs": "^4.6.2",
     "csv-simple-parser": "^2.0.2",
+    "isomorphic-git": "^1.35.1",
     "octokit": "^4.1.0"
   }
 }

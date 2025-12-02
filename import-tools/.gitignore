@@ -4,6 +4,8 @@
 *.csv
 roster.json
 /submissions*
+/temp
+/repo_base_files
 
 # Logs
 

@@ -15,7 +15,7 @@ console.log("Add a collaborator to repositories based on roster");
 let roster = await askForInternalRosterFile();
 console.log(roster);
 
-let organization = Config.getGitHubOrgName();
+let organization = Config.GitHub.organizationName();
 let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
 let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
 let collaboratorType = prompt("Enter the collaborator type (user/team): ") ?? "user";
