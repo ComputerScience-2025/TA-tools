@@ -6,6 +6,7 @@
     "setup-repos": "bun run src/setup-repos.ts",
     "upload-files": "bun run src/upload-files.ts",
     "upload-base-files": "bun run src/upload-base-files.ts",
+    "close-prs": "bun run src/close-prs.ts",
     "test-filename-parser": "bun run src/test-filename-parser.ts",
     "roster-convert": "bun run src/roster-convert.ts",
     "roster-export": "bun run src/roster-export.ts"
