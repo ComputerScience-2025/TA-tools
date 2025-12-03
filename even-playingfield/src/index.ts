@@ -50,6 +50,7 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
     
     log("Sending chat completion request...");
     let startTime = Date.now();
+    const seed = Math.floor(Date.now() / 1000);
     let completion = await openRouter.chat.send({
         model: CONFIG.openrouter.model,
         maxCompletionTokens: CONFIG.hyperparameters.max_completion_tokens,
@@ -69,6 +70,7 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
             }
         ],
         stream: false,
+        seed: seed,
         frequencyPenalty: CONFIG.hyperparameters.frequency_penalty,
         presencePenalty: CONFIG.hyperparameters.presence_penalty,
         temperature: CONFIG.hyperparameters.temperature,
@@ -84,8 +86,11 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
         warn("No choices returned from completion");
     }
     const completionText = completion.choices[0]?.message.content?.toString() ?? "";
-    const outputFileName = workflow.output_filename;
+    let outputFileName = workflow.output_filename;
+    // TODO: Add more template variables
+    outputFileName.replace("[seed]", seed.toString());
     await Bun.write(outputFileName, completionText);
+    log(`Completion written to ${outputFileName}`);
 }
 
 // Parallelize workflows with Promise.allSettled
