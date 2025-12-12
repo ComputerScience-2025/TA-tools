@@ -86,9 +86,11 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
         warn("No choices returned from completion");
     }
     const completionText = completion.choices[0]?.message.content?.toString() ?? "";
-    let outputFileName = workflow.output_filename;
     // TODO: Add more template variables
-    outputFileName.replace("[seed]", seed.toString());
+    const outputFileName = workflow.output_filename
+        .replaceAll("[seed]", seed.toString())
+        .replaceAll("[slug]", workflow.slug)
+        .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`);
     await Bun.write(outputFileName, completionText);
     log(`Completion written to ${outputFileName}`);
 }
