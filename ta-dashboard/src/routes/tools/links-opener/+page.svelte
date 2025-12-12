@@ -19,8 +19,10 @@
         if (pullRequestNumber) {
             const prVCSWebURL = `${repositoryBaseURL.replace("github.com", "github.dev")}/pull/${pullRequestNumber}`;
             const prFilesTabURL = `${repositoryBaseURL}/pull/${pullRequestNumber}/files`;
+            const prChecksTabURL = `${repositoryBaseURL}/pull/${pullRequestNumber}/checks`;
             openToNewTal(prVCSWebURL);
             openToNewTal(prFilesTabURL);
+            openToNewTal(prChecksTabURL);
         }
 
         if (branchName) {
