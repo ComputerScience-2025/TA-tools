@@ -19,7 +19,7 @@ export const ConfigSchema = z.object({
         model: z.string(),
     }),
     hyperparameters: z.object({
-        max_completion_tokens: z.number().min(1).max(32000).default(20000),
+        max_completion_tokens: z.number().min(1).default(20000),
         temperature: z.number().min(0).max(1).default(0.9),
         top_p: z.number().min(0).max(1).default(1),
         frequency_penalty: z.number().min(-2).max(2).default(0),
