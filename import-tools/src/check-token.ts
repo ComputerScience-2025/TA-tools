@@ -1,4 +1,4 @@
-import {octokit} from "./service.ts";
+import {octokit} from "./helper/service.ts";
 
 console.log("Checking GitHub token scopes...");
 

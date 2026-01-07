@@ -2,10 +2,11 @@
 
 # custom inputs
 *.csv
-roster.json
+roster*.json
 /submissions*
 /temp
 /repo_base_files
+/dummy-files
 
 # Logs
 

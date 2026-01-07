@@ -1,8 +1,8 @@
 import {Glob} from "bun";
 
 import {CanvasHelper} from "./helper/canvas.ts";
-import {octokit} from "./service.ts";
-import {Config} from "./config.ts";
+import {octokit} from "./helper/service.ts";
+import {Config} from "./helper/config.ts";
 import {Naming} from "./helper/naming.ts";
 
 

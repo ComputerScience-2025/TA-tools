@@ -1,7 +1,7 @@
 import {askForInternalRosterFile, RosterCreator} from "./helper/roster-internal.ts";
 import {Naming} from "./helper/naming.ts";
-import {octokit, OctokitRequestError} from "./service.ts";
-import {Config} from "./config.ts";
+import {octokit, OctokitRequestError} from "./helper/service.ts";
+import {Config} from "./helper/config.ts";
 
 console.log("Setting up repositories for students");
 
@@ -19,7 +19,7 @@ if (confirmation !== "yes") {
 }
 
 // Create a RosterCreator instance to save updates
-let rosterCreator = new RosterCreator("updated_roster.json", sectionName);
+let rosterCreator = new RosterCreator("roster_updated.json", sectionName);
 
 for (let student of roster.students) {
     console.log(`Student: ${student.fullName} (${student.userName})`);
@@ -50,12 +50,12 @@ for (let student of roster.students) {
 
     console.log(`Repository "${repoName}" does not exist, creating...`);
     try {
-        let resp = await octokit.request("POST /orgs/{org}/repos", {
+        let createRepoResp = await octokit.request("POST /orgs/{org}/repos", {
             org: organization,
             name: repoName,
             private: true,
         });
-        if (resp.status == 201) {
+        if (createRepoResp.status == 201) {
             console.log(`Repository "${repoName}" created`);
 
             // Initialize the repository with a README.md file
@@ -78,12 +78,30 @@ for (let student of roster.students) {
             // Save the repository URL to the student's data
             student.repoURL = `https://github.com/${organization}/${repoName}`;
         } else {
-            console.error(`Error creating repository, status: ${resp.status}`);
-            console.log(resp);
+            console.error(`Error creating repository, status: ${createRepoResp.status}`);
+            console.log(createRepoResp);
         }
     } catch (e) {
         console.error("Error creating repository");
         console.log(e);
+    }
+    
+    console.log("Adding student to the repository");
+    console.assert(student.email.includes("@"), "Student email should be a valid email");
+    let inviteeUsername = student.email;
+    try {
+        await octokit.rest.repos.addCollaborator({
+            owner:  organization,
+            repo: repoName,
+            username: inviteeUsername,
+            permission: "pull", // Read access
+        });
+        console.log(`Added ${inviteeUsername} to ${repoName}`);
+    } catch (error) {
+        console.error(`Failed to add ${inviteeUsername} to ${repoName}:`, error);
+        if (error instanceof OctokitRequestError && error.status === 404) {
+            console.error(`User ${inviteeUsername} not found on GitHub.`);
+        }
     }
 
     // Add the updated student to the roster
@@ -92,4 +110,4 @@ for (let student of roster.students) {
 
 // Save the updated roster
 await rosterCreator.save();
-console.log("Updated roster saved to 'updated_roster.json'");
+console.log("Updated roster saved to 'roster_updated.json'");

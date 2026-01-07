@@ -6,8 +6,8 @@ import http from "isomorphic-git/http/web";
 
 import { askForInternalRosterFile } from "./helper/roster-internal.ts";
 import { Naming } from "./helper/naming.ts";
-import { octokit } from "./service.ts";
-import { Config } from "./config.ts";
+import { octokit } from "./helper/service.ts";
+import { Config } from "./helper/config.ts";
 
 console.log("Uploading base files to repositories...");
 console.log(`Base files directory: ${Config.repoBaseFilesDirectory}`);

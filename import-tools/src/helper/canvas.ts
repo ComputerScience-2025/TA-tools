@@ -9,6 +9,9 @@ export const CanvasHelper = {
             actualFilename: split.slice(3).join("_"),
         }
     },
+    recreateSubmissionFilename: (parsed: {personName: string, personID: string, fileID: string, actualFilename: string}) => {
+        return `${parsed.personName}_${parsed.personID}_${parsed.fileID}_${parsed.actualFilename}`;
+    },
     fixFileName: (originalName: string) => {
         // turn the filename from "ABC-1.cs" to "ABC.cs"
         if (/\w+-\d\.((cs)|(cpp)|(h))$/gm.test(originalName)) {

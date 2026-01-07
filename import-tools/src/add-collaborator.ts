@@ -1,6 +1,6 @@
 import {askForInternalRosterFile} from "./helper/roster-internal.ts";
-import {Config} from "./config.ts";
-import {octokit} from "./service.ts";
+import {Config} from "./helper/config.ts";
+import {octokit} from "./helper/service.ts";
 import {Naming} from "./helper/naming.ts";
 
 

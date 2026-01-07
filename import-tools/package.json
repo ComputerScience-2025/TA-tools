@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "setup-repos": "bun run src/setup-repos.ts",
+    "add-collaborator": "bun run src/add-collaborator.ts",
+    "make-dummy-files": "bun run src/make-dummy-files.ts",
     "upload-files": "bun run src/upload-files.ts",
     "upload-base-files": "bun run src/upload-base-files.ts",
     "close-prs": "bun run src/close-prs.ts",

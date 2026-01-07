@@ -1,6 +1,6 @@
 import {Glob} from "bun";
 import {CanvasHelper} from "./helper/canvas.ts";
-import {Config} from "./config.ts";
+import {Config} from "./helper/config.ts";
 
 
 for await (const filepath of new Glob(`${Config.submissionInputDirectory}/*`).scan(".")) {
