@@ -8,11 +8,13 @@ import {Naming} from "./helper/naming.ts";
 
 console.log("Uploading files to repositories...");
 console.log(`Input directory: ${Config.submissionInputDirectory}`);
+let skipIfBranchExistsInput = prompt("Skip upload if branch already exists? (yes/no): ") ?? "no";
 let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
 let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
 let assignmentName = prompt("Enter the assignment name: ") ?? "YOU_FORGOT_TO_ENTER_AN_ASSIGNMENT_NAME";
 let repoPrefix = Naming.repositoryNamePrefix({courseName, sectionName});
 console.log(`Course: ${courseName}, Section: ${sectionName}, Assignment: ${assignmentName}, Repo Prefix: ${repoPrefix}`);
+let skipIfBranchExists = skipIfBranchExistsInput.toLowerCase() === "yes";
 
 let files = new Map<string, {fullFN: string, actualFN: string}[]>();
 
@@ -36,11 +38,12 @@ for await (const filepath of new Glob(`${Config.submissionInputDirectory}/*`).sc
 console.log(files);
 
 console.log("Getting repositories...");
+let repoMap = new Map<string, string>();
 let repos = await octokit.request("GET /orgs/{org}/repos", {
     org: Config.GitHub.organizationName(),
     per_page: 100, // TODO: pagination
+    direction: "desc",
 });
-let repoMap = new Map<string, string>();
 for (let repo of repos.data) {
     if (repo.name.startsWith(repoPrefix)) {
         let repoNameParsed = Naming.parseRepositoryName(repo.name);
@@ -54,8 +57,9 @@ for (let [studentID, fileArray] of files) {
     let repoName = repoMap.get(studentID);
     if (!repoName) {
         console.error(`Repository not found for student ID: ${studentID}`);
-        continue;
+        break;
     }
+    console.log(`Repository Name: ${repoName}`);
     
     const baseBranch = "main";
     const newBranch = assignmentName;  // TODO: make sure the assignment name is valid
@@ -80,6 +84,10 @@ for (let [studentID, fileArray] of files) {
             ref: `heads/${newBranch}`,
         });
         // Branch exists, delete it
+        if (skipIfBranchExists) {
+            console.log(`Branch ${newBranch} already exists. Skipping upload as per user request.`);
+            continue;
+        }
         console.log(`Branch ${newBranch} already exists. Deleting...`);
         await octokit.rest.git.deleteRef({
             owner: Config.GitHub.organizationName(),
