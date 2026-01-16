@@ -5,8 +5,6 @@ import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 
 import { askForInternalRosterFile } from "./helper/roster-internal.ts";
-import { Naming } from "./helper/naming.ts";
-import { octokit } from "./helper/service.ts";
 import { Config } from "./helper/config.ts";
 
 console.log("Uploading base files to repositories...");
@@ -15,12 +13,20 @@ console.log(`Base files directory: ${Config.repoBaseFilesDirectory}`);
 let roster = await askForInternalRosterFile();
 console.log(`Loaded roster with ${roster.students.length} students`);
 
-let courseName = prompt("Enter the course name: ") ?? "YOU_FORGOT_TO_ENTER_A_COURSE_NAME";
-let sectionName = prompt("Enter the section name: ") ?? "YOU_FORGOT_TO_ENTER_A_SECTION_NAME";
-let repoPrefix = Naming.repositoryNamePrefix({ courseName, sectionName });
-console.log(`Course: ${courseName}, Section: ${sectionName}, Repo Prefix: ${repoPrefix}`);
+// Display roster information
+console.log("\n=== Roster Preview ===");
+console.log(`Total students: ${roster.students.length}`);
+if (roster.students.length > 0) {
+    console.log("\nFirst few entries:");
+    roster.students.slice(0, 3).forEach((student, index) => {
+        console.log(`  ${index + 1}. ${student.fullName} (${student.userName}) - Section: ${student.section}`);
+    });
+    if (roster.students.length > 3) {
+        console.log(`  ... and ${roster.students.length - 3} more students`);
+    }
+}
 
-let confirmation = prompt("This will upload base files to all student repositories. Continue? (yes/no): ");
+let confirmation = prompt("\nThis will upload base files to all entries in the roster. Continue? (yes/no): ");
 if (confirmation !== "yes") {
     console.log("Exiting...");
     process.exit(1);
@@ -64,42 +70,32 @@ if (confirmation !== "yes") {
     process.exit(1);
 }
 
-// Get repositories for the students
-console.log("\nGetting repositories...");
-let repos = await octokit.request("GET /orgs/{org}/repos", {
-    org: Config.GitHub.organizationName(),
-    per_page: 100, // TODO: pagination
-});
-
-let repoMap = new Map<string, string>();
-for (let repo of repos.data) {
-    if (repo.name.startsWith(repoPrefix)) {
-        let repoNameParsed = Naming.parseRepositoryName(repo.name);
-        repoMap.set(repoNameParsed.personID, repo.name);
-    }
-}
-
-console.log(`Found ${repoMap.size} matching repositories`);
-
-// Process each student
+// Process each student from the roster
 let processedCount = 0;
 let errorCount = 0;
 
 for (let student of roster.students) {
     console.log(`\n--- Processing: ${student.fullName} (${student.userName}) ---`);
 
-    let repoName = repoMap.get(student.id);
-    if (!repoName) {
-        console.error(`Repository not found for student ID: ${student.id}`);
+    if (!student.repoURL) {
+        console.error(`Repository URL not found for student: ${student.fullName}`);
         errorCount++;
         continue;
     }
 
-    console.log(`Repository: ${repoName}`);
-    console.log(`Organization: ${Config.GitHub.organizationName()}`);
+    const repoUrl = student.repoURL;
+    const repoName = repoUrl.split('/').pop()?.replace('.git', '') || '';
+    
+    if (!repoName) {
+        console.error(`Failed to extract repository name from URL: ${repoUrl}`);
+        errorCount++;
+        continue;
+    }
+
+    console.log(`Repository URL: ${repoUrl}`);
+    console.log(`Repository Name: ${repoName}`);
 
     const baseBranch = "main";
-    const repoUrl = `https://github.com/${Config.GitHub.organizationName()}/${repoName}.git`;
     
     const dir = `./temp/repo-${repoName}`;
 
