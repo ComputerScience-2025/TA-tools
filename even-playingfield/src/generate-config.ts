@@ -1,13 +1,13 @@
 import {stringify} from "smol-toml";
 import {getDefaultsForSchema} from "zod-defaults";
 
-import {ConfigSchema, ConfigWorkflowEntrySchema, FileSearchEntrySchema} from "./util/config-schema.ts";
+import {ConfigSchema, LLMWorkflowEntrySchema, FileSearchEntrySchema} from "./util/config-schema.ts";
 
 
 console.log("generate-config.ts");
 
 let defaultConfig = getDefaultsForSchema(ConfigSchema);
-let defaultBasicWorkflowEntry = getDefaultsForSchema(ConfigWorkflowEntrySchema);
+let defaultBasicWorkflowEntry = getDefaultsForSchema(LLMWorkflowEntrySchema);
 let defaultFileSearchEntry = getDefaultsForSchema(FileSearchEntrySchema);
 defaultBasicWorkflowEntry.input_files_searches = [defaultFileSearchEntry];
 defaultConfig.basic_workflows = [defaultBasicWorkflowEntry];

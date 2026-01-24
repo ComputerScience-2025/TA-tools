@@ -6,12 +6,19 @@ export const FileSearchEntrySchema = z.object({
     excluded_files: z.array(z.string()).default([]),
 });
 
-export const ConfigWorkflowEntrySchema = z.object({
+export const BaseWorkflowEntrySchema = z.object({
     slug: z.string(),
     runs: z.number().min(1).default(1),
     input_files_searches: z.array(FileSearchEntrySchema).default([]),
     output_filename: z.string().min(1),
+});
+
+export const LLMWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
     prompt: z.string(),
+})
+
+export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
+
 });
 
 export const ConfigSchema = z.object({
@@ -27,5 +34,5 @@ export const ConfigSchema = z.object({
         presence_penalty: z.number().min(-2).max(2).default(0),
         reasoning_effort: z.enum(["low", "medium", "high"]).default("high"),
     }),
-    basic_workflows: z.array(ConfigWorkflowEntrySchema),
+    basic_workflows: z.array(LLMWorkflowEntrySchema),
 });
