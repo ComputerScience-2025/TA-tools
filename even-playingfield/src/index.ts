@@ -6,7 +6,7 @@ import {CONFIG} from "./util/config.ts";
 import {FilePayloadGenerator} from "./util/file-payload.ts";
 
 
-console.log("index.ts");
+console.log("EPF index.ts");
 
 const openRouter = new OpenRouter({
     apiKey: CONFIG.openrouter.api_key,
@@ -98,6 +98,8 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
 
 // Parallelize workflows with Promise.allSettled
 const workflows = CONFIG.basic_workflows;
+console.log(`Starting execution of ${workflows.length} workflows...`);
+console.log(workflows.map((w) => w.slug));
 let workflowRuns: Promise<void>[] = [];
 workflows.forEach((workflow) => {
     for (let i = 0; i < workflow.runs; i++) {
