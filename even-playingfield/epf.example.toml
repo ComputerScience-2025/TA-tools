@@ -12,6 +12,7 @@ reasoning_effort = "high"
 
 [[basic_workflows]]
 slug = ""
+runs = 1
 output_filename = ""
 prompt = ""
 

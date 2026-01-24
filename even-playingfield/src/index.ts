@@ -13,7 +13,7 @@ const openRouter = new OpenRouter({
 });
 
 
-async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[number]) {
+async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[number], runNum: number) {
     console.log(`Executing workflow: ${workflow.slug}`);
     const log = (...args: Parameters<typeof console.log>) => {
         console.log(`[${workflow.slug}]`, ...args);
@@ -90,16 +90,21 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
     const outputFileName = workflow.output_filename
         .replaceAll("[seed]", seed.toString())
         .replaceAll("[slug]", workflow.slug)
-        .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`);
+        .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
+        .replaceAll("[run]", runNum.toString());
     await Bun.write(outputFileName, completionText);
     log(`Completion written to ${outputFileName}`);
 }
 
 // Parallelize workflows with Promise.allSettled
 const workflows = CONFIG.basic_workflows;
-const results = await Promise.allSettled(
-    workflows.map((workflow) => executeBasicWorkflow(workflow))
-);
+let workflowRuns: Promise<void>[] = [];
+workflows.forEach((workflow) => {
+    for (let i = 0; i < workflow.runs; i++) {
+        workflowRuns.push(executeBasicWorkflow(workflow, i+1));
+    }
+});
+const results = await Promise.allSettled(workflowRuns);
 
 // Summarize with indices to include slugs in failure logs
 const failedIndices: number[] = [];

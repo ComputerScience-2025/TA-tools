@@ -8,6 +8,7 @@ export const FileSearchEntrySchema = z.object({
 
 export const ConfigWorkflowEntrySchema = z.object({
     slug: z.string(),
+    runs: z.number().min(1).default(1),
     input_files_searches: z.array(FileSearchEntrySchema).default([]),
     output_filename: z.string().min(1),
     prompt: z.string(),
