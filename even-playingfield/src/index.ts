@@ -13,8 +13,8 @@ const openRouter = new OpenRouter({
 });
 
 
-async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[number], runNum: number) {
-    console.log(`Executing workflow: ${workflow.slug}`);
+async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number) {
+    console.log(`Executing analysis workflow: ${workflow.slug}`);
     const log = (...args: Parameters<typeof console.log>) => {
         console.log(`[${workflow.slug}]`, ...args);
     }
@@ -97,21 +97,21 @@ async function executeBasicWorkflow(workflow: typeof CONFIG.basic_workflows[numb
 }
 
 // Parallelize workflows with Promise.allSettled
-const workflows = CONFIG.basic_workflows;
-console.log(`Starting execution of ${workflows.length} workflows...`);
-console.log(workflows.map((w) => w.slug));
+const analysisWorkflows = CONFIG.analysis_workflows;
+console.log(`Starting execution of ${analysisWorkflows.length} workflows...`);
+console.log(analysisWorkflows.map((w) => w.slug));
 let workflowRuns: Promise<void>[] = [];
-workflows.forEach((workflow) => {
+analysisWorkflows.forEach((workflow) => {
     for (let i = 0; i < workflow.runs; i++) {
-        workflowRuns.push(executeBasicWorkflow(workflow, i+1));
+        workflowRuns.push(executeAnalysisWorkflow(workflow, i+1));
     }
 });
-const results = await Promise.allSettled(workflowRuns);
+const analysisWorkflowsResults = await Promise.allSettled(workflowRuns);
 
 // Summarize with indices to include slugs in failure logs
 const failedIndices: number[] = [];
 const succeededIndices: number[] = [];
-results.forEach((r, i) => {
+analysisWorkflowsResults.forEach((r, i) => {
     if (r.status === "rejected") failedIndices.push(i);
     else succeededIndices.push(i);
 });
@@ -119,8 +119,8 @@ results.forEach((r, i) => {
 console.log(`Workflows completed. Succeeded: ${succeededIndices.length}; Failed: ${failedIndices.length}`);
 if (failedIndices.length > 0) {
     failedIndices.forEach((i) => {
-        const r = results[i] as PromiseRejectedResult;
-        const slug = workflows[i]?.slug ?? `#${i + 1}`;
+        const r = analysisWorkflowsResults[i] as PromiseRejectedResult;
+        const slug = analysisWorkflows[i]?.slug ?? `#${i + 1}`;
         console.warn(`Workflow '${slug}' failed:`, r.reason);
     });
 }

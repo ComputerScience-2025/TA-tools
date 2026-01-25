@@ -13,12 +13,32 @@ export const BaseWorkflowEntrySchema = z.object({
     output_filename: z.string().min(1),
 });
 
-export const LLMWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
+export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
     prompt: z.string(),
 })
 
-export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
+const ExpectedOutputSchema = z.object({
+    substrings: z.array(z.string()).min(0),
+    shell_command: z.string().min(0),
+    llm_judge_prompt: z.string().min(0),
+});
 
+export const TestCaseSchema = z.object({
+    name: z.string(),
+    single_run_command: z.string(),
+    expected_output: ExpectedOutputSchema,
+    interactive_steps: z.array(z.object({
+        input: z.string(),
+        expected_output: ExpectedOutputSchema,
+    })),
+});
+
+export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
+    setup_commands: z.array(z.string()).default([]),
+    test_cases: z.array(TestCaseSchema).default([]),
+    cleanup_commands: z.array(z.string()).default([]),
+}).omit({
+    input_files_searches: true,
 });
 
 export const ConfigSchema = z.object({
@@ -34,5 +54,6 @@ export const ConfigSchema = z.object({
         presence_penalty: z.number().min(-2).max(2).default(0),
         reasoning_effort: z.enum(["low", "medium", "high"]).default("high"),
     }),
-    basic_workflows: z.array(LLMWorkflowEntrySchema),
+    analysis_workflows: z.array(AnalysisWorkflowEntrySchema),
+    testing_workflows: z.array(TestingWorkflowEntrySchema),
 });

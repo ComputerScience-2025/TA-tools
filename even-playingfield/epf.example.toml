@@ -10,13 +10,30 @@ frequency_penalty = 0
 presence_penalty = 0
 reasoning_effort = "high"
 
-[[basic_workflows]]
+[[analysis_workflows]]
 slug = ""
 runs = 1
 output_filename = ""
 prompt = ""
 
-[[basic_workflows.input_files_searches]]
+[[analysis_workflows.input_files_searches]]
 file_glob = ""
 search_directory = "."
 excluded_files = []
+
+[[testing_workflows]]
+slug = ""
+runs = 1
+output_filename = ""
+setup_commands = []
+cleanup_commands = []
+
+[[testing_workflows.test_cases]]
+name = ""
+single_run_command = ""
+interactive_steps = []
+
+[testing_workflows.test_cases.expected_output]
+substrings = []
+shell_command = ""
+llm_judge_prompt = ""
