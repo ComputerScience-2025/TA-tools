@@ -18,7 +18,7 @@ export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 })
 
 const ExpectedOutputSchema = z.object({
-    substrings: z.array(z.string()).min(0),
+    substring: z.string().min(0),
     shell_command: z.string().min(0),
     llm_judge_prompt: z.string().min(0),
 });

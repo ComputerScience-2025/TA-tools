@@ -34,6 +34,6 @@ single_run_command = ""
 interactive_steps = []
 
 [testing_workflows.test_cases.expected_output]
-substrings = []
+substring = ""
 shell_command = ""
 llm_judge_prompt = ""

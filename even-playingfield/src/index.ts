@@ -4,6 +4,7 @@ import {OpenRouter} from "@openrouter/sdk";
 
 import {CONFIG} from "./util/config.ts";
 import {FilePayloadGenerator} from "./util/file-payload.ts";
+import {executeTestingWorkflow} from "./testing-workflow.ts";
 
 
 console.log("EPF index.ts");
@@ -98,6 +99,7 @@ async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflow
 
 // Parallelize workflows with Promise.allSettled
 const analysisWorkflows = CONFIG.analysis_workflows;
+const testingWorkflows = CONFIG.testing_workflows;
 console.log(`Starting execution of ${analysisWorkflows.length} workflows...`);
 console.log(analysisWorkflows.map((w) => w.slug));
 let workflowRuns: Promise<void>[] = [];
@@ -106,12 +108,17 @@ analysisWorkflows.forEach((workflow) => {
         workflowRuns.push(executeAnalysisWorkflow(workflow, i+1));
     }
 });
-const analysisWorkflowsResults = await Promise.allSettled(workflowRuns);
+testingWorkflows.forEach((workflow) => {
+    for (let i = 0; i < workflow.runs; i++) {
+        workflowRuns.push(executeTestingWorkflow(workflow, i+1));
+    }
+});
 
+const workflowsResults = await Promise.allSettled(workflowRuns);
 // Summarize with indices to include slugs in failure logs
 const failedIndices: number[] = [];
 const succeededIndices: number[] = [];
-analysisWorkflowsResults.forEach((r, i) => {
+workflowsResults.forEach((r, i) => {
     if (r.status === "rejected") failedIndices.push(i);
     else succeededIndices.push(i);
 });
@@ -119,7 +126,7 @@ analysisWorkflowsResults.forEach((r, i) => {
 console.log(`Workflows completed. Succeeded: ${succeededIndices.length}; Failed: ${failedIndices.length}`);
 if (failedIndices.length > 0) {
     failedIndices.forEach((i) => {
-        const r = analysisWorkflowsResults[i] as PromiseRejectedResult;
+        const r = workflowsResults[i] as PromiseRejectedResult;
         const slug = analysisWorkflows[i]?.slug ?? `#${i + 1}`;
         console.warn(`Workflow '${slug}' failed:`, r.reason);
     });

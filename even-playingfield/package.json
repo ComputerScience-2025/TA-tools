@@ -1,11 +1,14 @@
 {
-  "name": "tools",
+  "name": "e-pf",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "bun build src/index.ts --compile  --outfile build/epf",
     "config-gen": "bun run --console-depth 4 src/generate-config.ts"
+  },
+  "bin": {
+    "e-pf": "src/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
