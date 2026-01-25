@@ -25,6 +25,7 @@ const ExpectedOutputSchema = z.object({
 
 export const TestCaseSchema = z.object({
     name: z.string(),
+    work_directory: z.string().default("."),
     single_run_command: z.string(),
     expected_output: ExpectedOutputSchema,
     interactive_steps: z.array(z.object({

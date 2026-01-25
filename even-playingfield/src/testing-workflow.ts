@@ -16,10 +16,11 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
         await $`${{raw: command}}`.nothrow();
     }
 
-    // for (let i = 0; i < workflow.test_cases.length; i++) {
-    //     const testCase = workflow.test_cases[i]!;
-    //     log(`Running test case ${i + 1}/${workflow.test_cases.length}: ${testCase.name}`);
-    // }
+    for (let i = 0; i < workflow.test_cases.length; i++) {
+        const testCase = workflow.test_cases[i]!;
+        log(`Running test case ${i + 1}/${workflow.test_cases.length}: ${testCase.name}`);
+
+    }
 
     log(`Finished testing workflow: ${workflow.slug}`);
 }

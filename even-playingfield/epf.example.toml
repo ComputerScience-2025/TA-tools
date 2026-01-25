@@ -30,6 +30,7 @@ cleanup_commands = []
 
 [[testing_workflows.test_cases]]
 name = ""
+work_directory = "."
 single_run_command = ""
 interactive_steps = []
 
