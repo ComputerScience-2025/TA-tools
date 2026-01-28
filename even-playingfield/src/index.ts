@@ -4,7 +4,7 @@ import {OpenRouter} from "@openrouter/sdk";
 
 import {CONFIG} from "./util/config.ts";
 import {FilePayloadGenerator} from "./util/file-payload.ts";
-import {executeTestingWorkflow} from "./testing-workflow.ts";
+import {executeTestingWorkflow} from "./workflow/testing-workflow.ts";
 
 
 console.log("EPF index.ts");
