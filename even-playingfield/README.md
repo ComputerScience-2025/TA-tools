@@ -1,5 +1,5 @@
 # Project Even-Playfield (E-PF)
-AI-assisted responsible grading tool for programming assignments. The GPT-wrapper for graders.
+AI-assisted responsible grading tool for programming assignments. A GPT-wrapper in CLI for CS graders.
 
 To install dependencies:
 ```bash

@@ -25,6 +25,8 @@ export enum LLMJudgeInputModeEnum{
 const LLMJudgeInputModeSchema = z.enum(LLMJudgeInputModeEnum);
 
 const ExpectedOutputSchema = z.object({
+    prefix_strip_string: z.string().min(0),
+    postfix_strip_string: z.string().min(0),
     substring: z.string().min(0),
     llm_judge_input_mode: LLMJudgeInputModeSchema.default(LLMJudgeInputModeEnum.None),
     llm_judge_prompt: z.string().min(0),

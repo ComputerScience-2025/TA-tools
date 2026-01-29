@@ -35,6 +35,8 @@ single_run_command = ""
 interactive_steps = []
 
 [testing_workflows.test_cases.single_run_expected_output]
+prefix_strip_string = ""
+postfix_strip_string = ""
 substring = ""
 llm_judge_input_mode = "NONE"
 llm_judge_prompt = ""
