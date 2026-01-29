@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import {OpenRouter} from "@openrouter/sdk";
 
 import {CONFIG} from "./util/config.ts";
