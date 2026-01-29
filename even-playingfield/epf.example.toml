@@ -34,7 +34,7 @@ work_directory = "."
 single_run_command = ""
 interactive_steps = []
 
-[testing_workflows.test_cases.expected_output]
+[testing_workflows.test_cases.single_run_expected_output]
 substring = ""
-shell_command = ""
+llm_judge_input_mode = "NONE"
 llm_judge_prompt = ""

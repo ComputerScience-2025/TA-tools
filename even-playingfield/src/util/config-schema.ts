@@ -17,9 +17,16 @@ export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
     prompt: z.string(),
 })
 
+export enum LLMJudgeInputModeEnum{
+    None = "NONE",
+    Diff = "DIFF",
+    Full = "FULL",
+}
+const LLMJudgeInputModeSchema = z.enum(LLMJudgeInputModeEnum);
+
 const ExpectedOutputSchema = z.object({
     substring: z.string().min(0),
-    shell_command: z.string().min(0),
+    llm_judge_input_mode: LLMJudgeInputModeSchema.default(LLMJudgeInputModeEnum.None),
     llm_judge_prompt: z.string().min(0),
 });
 
@@ -27,7 +34,7 @@ export const TestCaseSchema = z.object({
     name: z.string(),
     work_directory: z.string().default("."),
     single_run_command: z.string(),
-    expected_output: ExpectedOutputSchema,
+    single_run_expected_output: ExpectedOutputSchema,
     interactive_steps: z.array(z.object({
         input: z.string(),
         expected_output: ExpectedOutputSchema,
