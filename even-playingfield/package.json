@@ -1,15 +1,16 @@
 {
   "name": "e-pf",
+  "version": "0.1.0",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile build/epf",
     "config-gen": "bun run --console-depth 6 src/generate-config.ts"
   },
   "bin": {
-    "e-pf": "bun run src/index.ts"
+    "e-pf": "src/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -22,5 +23,15 @@
     "chalk": "^5.6.2",
     "smol-toml": "^1.5.2",
     "zod-defaults": "^0.2.3"
-  }
+  },
+  "files": [
+    ".gitignore",
+    "src",
+    "bun.lock",
+    "bunfig.toml",
+    "epf.example.toml",
+    "package.json",
+    "README.md",
+    "tsconfig.json"
+  ]
 }
