@@ -23,6 +23,7 @@ console.log("Getting repositories...");
 let repos = await octokit.request("GET /orgs/{org}/repos", {
     org: Config.GitHub.organizationName(),
     per_page: 100, // TODO: pagination
+    direction: "desc",
 });
 
 let targetRepos = repos.data.filter(repo => repo.name.startsWith(repoPrefix));
