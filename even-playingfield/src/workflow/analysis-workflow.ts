@@ -3,15 +3,16 @@ import {Glob} from "bun";
 import {CONFIG} from "../util/config.ts";
 import {FilePayloadGenerator} from "../util/file-payload.ts";
 import type {WorkflowDependencies} from "./index.ts";
+import chalk from "chalk";
 
 
 export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number, deps: WorkflowDependencies) {
     console.log(`Executing analysis workflow: ${workflow.slug}`);
     const log = (...args: Parameters<typeof console.log>) => {
-        console.log(`[${workflow.slug}]`, ...args);
+        console.log(chalk.cyan(`[${workflow.slug}]`), ...args);
     }
     const warn = (...args: Parameters<typeof console.warn>) => {
-        console.warn(`[${workflow.slug}]`, ...args);
+        console.warn(chalk.red(`[${workflow.slug}]`), ...args);
     }
     
     let allFiles = (
@@ -71,11 +72,9 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
         },
     });
     log(`Completion response generated in ${(Date.now() - startTime) / 1000} seconds`);
-    log(completion);
-    log(completion.usage);
-    log(completion.choices);
     if (completion.choices.length < 1){
         warn("No choices returned from completion");
+        console.log(completion);
     }
     const completionText = completion.choices[0]?.message.content?.toString() ?? "";
     // TODO: Add more template variables
