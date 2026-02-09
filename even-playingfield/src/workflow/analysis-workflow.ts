@@ -1,9 +1,11 @@
 import {Glob} from "bun";
 
+import chalk from "chalk";
+
 import {CONFIG} from "../util/config.ts";
 import {FilePayloadGenerator} from "../util/file-payload.ts";
 import type {WorkflowDependencies} from "./index.ts";
-import chalk from "chalk";
+import {generateCompletion} from "../util/llm.ts";
 
 
 export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number, deps: WorkflowDependencies) {
@@ -40,49 +42,18 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
     }
     log(`Found ${allFiles.length} files for workflow`);
     const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
-    
-    log("Sending chat completion request...");
-    let startTime = Date.now();
-    const seed = Math.floor(Date.now() / 1000);
-    let completion = await deps.openRouter.chat.send({
-        model: CONFIG.openrouter.model,
-        maxCompletionTokens: CONFIG.hyperparameters.max_completion_tokens,
-        messages: [
-            {
-                role: "system",
-                content: workflow.prompt,
-            },
-            {
-                role: "user",
-                content: fileContentsPayload.map((file) => {
-                    return {
-                        type: "text",
-                        text: file,
-                    }
-                }),
-            }
-        ],
-        stream: false,
-        seed: seed,
-        frequencyPenalty: CONFIG.hyperparameters.frequency_penalty,
-        presencePenalty: CONFIG.hyperparameters.presence_penalty,
-        temperature: CONFIG.hyperparameters.temperature,
-        reasoning: {
-            effort: CONFIG.hyperparameters.reasoning_effort,
-        },
-    });
-    log(`Completion response generated in ${(Date.now() - startTime) / 1000} seconds`);
-    if (completion.choices.length < 1){
-        warn("No choices returned from completion");
-        console.log(completion);
-    }
-    const completionText = completion.choices[0]?.message.content?.toString() ?? "";
-    // TODO: Add more template variables
+    const completion = await generateCompletion(deps, log, warn, workflow.prompt, fileContentsPayload.map((file) => {
+        return {
+            type: "text",
+            text: file,
+        }
+    }));
+
     const outputFileName = workflow.output_filename
-        .replaceAll("[seed]", seed.toString())
+        .replaceAll("[seed]", deps.seed.toString())
         .replaceAll("[slug]", workflow.slug)
         .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
         .replaceAll("[run]", runNum.toString());
-    await Bun.write(outputFileName, completionText);
+    await Bun.write(outputFileName, completion.text);
     log(`Completion written to ${outputFileName}`);
 }

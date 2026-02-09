@@ -5,17 +5,25 @@ import {
     ConfigSchema,
     AnalysisWorkflowEntrySchema,
     FileSearchEntrySchema,
-    TestingWorkflowEntrySchema, TestCaseSchema
+    TestingWorkflowEntrySchema, TestCaseSchema, LLMConfigSchema, ModelConfigSchema
 } from "./util/config-schema.ts";
 
 
 console.log("generate-config.ts");
 
 let defaultConfig = getDefaultsForSchema(ConfigSchema);
+
+let defaultLLMConfig = getDefaultsForSchema(LLMConfigSchema);
+defaultLLMConfig.prompt_replacement["role"] = "role_placeholder";
+let defaultModelConfig = getDefaultsForSchema(ModelConfigSchema);
+defaultLLMConfig.models["instructed"] = defaultModelConfig;
+defaultConfig.llm = defaultLLMConfig;
+
 let defaultAnalysisWorkflowEntry = getDefaultsForSchema(AnalysisWorkflowEntrySchema);
 let defaultFileSearchEntry = getDefaultsForSchema(FileSearchEntrySchema);
 defaultAnalysisWorkflowEntry.input_files_searches = [defaultFileSearchEntry];
 defaultConfig.analysis_workflows = [defaultAnalysisWorkflowEntry];
+
 let defaultTestingWorkflowEntry = getDefaultsForSchema(TestingWorkflowEntrySchema);
 defaultTestingWorkflowEntry.test_cases = [getDefaultsForSchema(TestCaseSchema)];
 defaultConfig.testing_workflows = [defaultTestingWorkflowEntry];

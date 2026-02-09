@@ -11,6 +11,7 @@ import type {WorkflowDependencies} from "./workflow";
 console.log("EPF index.ts");
 
 const workflowDependencies: WorkflowDependencies = {
+    seed: Math.floor(Date.now() / 1000),
     openRouter: new OpenRouter({
         apiKey: CONFIG.openrouter.api_key,
     })

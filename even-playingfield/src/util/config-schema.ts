@@ -1,5 +1,21 @@
 import {z} from "zod";
 
+export const ModelConfigSchema = z.object({
+    sdk: z.enum(["openrouter"]).default("openrouter"),
+    model_name: z.string().default(""),
+    max_completion_tokens: z.number().min(1).default(20000),
+    temperature: z.number().min(0).max(1).default(0.9),
+    top_p: z.number().min(0).max(1).default(1),
+    frequency_penalty: z.number().min(-2).max(2).default(0),
+    presence_penalty: z.number().min(-2).max(2).default(0),
+    reasoning_effort: z.enum(["low", "medium", "high"]).default("high"),
+});
+
+export const LLMConfigSchema = z.object({
+    models: z.record(z.string(), ModelConfigSchema),
+    prompt_replacement: z.record(z.string(), z.string()),
+});
+
 export const FileSearchEntrySchema = z.object({
     file_glob: z.string().min(1),
     search_directory: z.string().default("."),
@@ -11,6 +27,7 @@ export const BaseWorkflowEntrySchema = z.object({
     runs: z.number().min(1).default(1),
     input_files_searches: z.array(FileSearchEntrySchema).default([]),
     output_filename: z.string().min(1),
+    model: z.string().default("instructed"),
 });
 
 export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
@@ -52,6 +69,7 @@ export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 });
 
 export const ConfigSchema = z.object({
+    llm: LLMConfigSchema,
     openrouter: z.object({
         api_key: z.string(),
         model: z.string(),
