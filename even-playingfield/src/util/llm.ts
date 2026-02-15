@@ -7,8 +7,14 @@ import type {WorkflowDependencies} from "../workflow";
 export async function generateCompletion(deps: WorkflowDependencies,
                                          log: (..._: any[])=>void,
                                          warn: (..._: any[])=>void,
+                                         model: string,
                                          systemPrompt: string,
                                          content: UserMessage["content"]) {
+    let modelSettings = CONFIG.llm.models["model"];
+    if (!modelSettings) {
+        throw new Error(`No model settings found for model "${model}"`);
+    }
+    
     let replacedCount = 0;
     for (const [replacementKey, replacementValue] of Object.entries(CONFIG.llm.prompt_replacement)) {
         if (systemPrompt.includes(replacementKey)) {replacedCount++}
@@ -36,8 +42,8 @@ export async function generateCompletion(deps: WorkflowDependencies,
     log("Sending chat completion request...");
     let startTime = Date.now();
     let completion = await deps.openRouter.chat.send({
-        model: CONFIG.openrouter.model,
-        maxCompletionTokens: CONFIG.hyperparameters.max_completion_tokens,
+        model: modelSettings.model_name,
+        maxCompletionTokens: modelSettings.max_completion_tokens,
         messages: [
             {
                 role: "system",
@@ -50,11 +56,11 @@ export async function generateCompletion(deps: WorkflowDependencies,
         ],
         stream: false,
         seed: deps.seed,
-        frequencyPenalty: CONFIG.hyperparameters.frequency_penalty,
-        presencePenalty: CONFIG.hyperparameters.presence_penalty,
-        temperature: CONFIG.hyperparameters.temperature,
+        frequencyPenalty: modelSettings.frequency_penalty,
+        presencePenalty: modelSettings.presence_penalty,
+        temperature: modelSettings.temperature,
         reasoning: {
-            effort: CONFIG.hyperparameters.reasoning_effort,
+            effort: modelSettings.reasoning_effort,
         },
     });
     log(`Completion response generated in ${(Date.now() - startTime) / 1000} seconds`);

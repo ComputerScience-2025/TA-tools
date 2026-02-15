@@ -1,4 +1,4 @@
-[llm.models.instructed]
+[llm.models.general_analysis]
 sdk = "openrouter"
 model_name = ""
 max_completion_tokens = 20000
@@ -8,26 +8,27 @@ frequency_penalty = 0
 presence_penalty = 0
 reasoning_effort = "high"
 
-[llm.prompt_replacement]
-role = "role_placeholder"
-
-[openrouter]
-api_key = ""
-model = ""
-
-[hyperparameters]
+[llm.models.output_comparison]
+sdk = "openrouter"
+model_name = ""
 max_completion_tokens = 20000
-temperature = 0.9
+temperature = 0
 top_p = 1
 frequency_penalty = 0
 presence_penalty = 0
 reasoning_effort = "high"
 
+[llm.prompt_replacement]
+role = "role_placeholder"
+
+[vendors.openrouter]
+api_key = ""
+
 [[analysis_workflows]]
 slug = ""
+model = "general_analysis"
 runs = 1
 output_filename = ""
-model = "instructed"
 prompt = ""
 
 [[analysis_workflows.input_files_searches]]
@@ -37,9 +38,9 @@ excluded_files = []
 
 [[testing_workflows]]
 slug = ""
+model = "general_analysis"
 runs = 1
 output_filename = ""
-model = "instructed"
 setup_commands = []
 cleanup_commands = []
 

@@ -42,7 +42,7 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
     }
     log(`Found ${allFiles.length} files for workflow`);
     const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
-    const completion = await generateCompletion(deps, log, warn, workflow.prompt, fileContentsPayload.map((file) => {
+    const completion = await generateCompletion(deps, log, warn, workflow.model, workflow.prompt, fileContentsPayload.map((file) => {
         return {
             type: "text",
             text: file,

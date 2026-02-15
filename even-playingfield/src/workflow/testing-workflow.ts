@@ -4,6 +4,7 @@ import {CONFIG} from "../util/config.ts";
 import chalk from "chalk";
 import {LLMJudgeInputModeEnum} from "../util/config-schema.ts";
 import type {WorkflowDependencies} from "./index.ts";
+import {generateCompletion} from "../util/llm.ts";
 
 export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_workflows[number], runNum: number, deps: WorkflowDependencies) {
     console.log(`Executing testing workflow: ${workflow.slug}`);
@@ -71,37 +72,11 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
                 switch (testCase.single_run_expected_output.llm_judge_input_mode) {
                     case LLMJudgeInputModeEnum.Full:
                         log("Evaluating full output with LLM judge...");
-                        const seed = Math.floor(Date.now() / 1000);
-                        let completion = await deps.openRouter.chat.send({
-                            model: CONFIG.openrouter.model,
-                            maxCompletionTokens: CONFIG.hyperparameters.max_completion_tokens,
-                            messages: [
-                                {
-                                    role: "system",
-                                    content: testCase.single_run_expected_output.llm_judge_prompt,
-                                },
-                                {
-                                    role: "user",
-                                    content: JSON.stringify({
-                                        "expected_output_substring": testCase.single_run_expected_output.substring,
-                                        "actual_output": commandOutput,
-                                    }),
-                                }
-                            ],
-                            stream: false,
-                            seed: seed,
-                            frequencyPenalty: CONFIG.hyperparameters.frequency_penalty,
-                            presencePenalty: CONFIG.hyperparameters.presence_penalty,
-                            temperature: 0,
-                            reasoning: {
-                                effort: CONFIG.hyperparameters.reasoning_effort,
-                            },
-                        });
-                        if (completion.choices.length < 1){
-                            warn("No choices returned from completion");
-                            console.log(completion);
-                        }
-                        const completionText = completion.choices[0]?.message.content?.toString() ?? "";
+                        const completion = await generateCompletion(deps, log, warn, workflow.model, testCase.single_run_expected_output.llm_judge_prompt, JSON.stringify({
+                            "expected_output_substring": testCase.single_run_expected_output.substring,
+                            "actual_output": commandOutput,
+                        }));
+                        const completionText = completion.text;
                         log(`LLM judge completion:\n${completionText}`);
                         const llmJudgeResult = completionText.toLowerCase().includes("pass");  // TODO: More robust parsing
                         if (llmJudgeResult) {

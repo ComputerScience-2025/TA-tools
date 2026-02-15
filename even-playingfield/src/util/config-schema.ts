@@ -24,10 +24,10 @@ export const FileSearchEntrySchema = z.object({
 
 export const BaseWorkflowEntrySchema = z.object({
     slug: z.string(),
+    model: z.string().default("general_analysis"),
     runs: z.number().min(1).default(1),
     input_files_searches: z.array(FileSearchEntrySchema).default([]),
     output_filename: z.string().min(1),
-    model: z.string().default("instructed"),
 });
 
 export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
@@ -70,17 +70,10 @@ export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 
 export const ConfigSchema = z.object({
     llm: LLMConfigSchema,
-    openrouter: z.object({
-        api_key: z.string(),
-        model: z.string(),
-    }),
-    hyperparameters: z.object({
-        max_completion_tokens: z.number().min(1).default(20000),
-        temperature: z.number().min(0).max(1).default(0.9),
-        top_p: z.number().min(0).max(1).default(1),
-        frequency_penalty: z.number().min(-2).max(2).default(0),
-        presence_penalty: z.number().min(-2).max(2).default(0),
-        reasoning_effort: z.enum(["low", "medium", "high"]).default("high"),
+    vendors: z.object({
+        openrouter: z.object({
+            api_key: z.string(),
+        }),
     }),
     analysis_workflows: z.array(AnalysisWorkflowEntrySchema),
     testing_workflows: z.array(TestingWorkflowEntrySchema),

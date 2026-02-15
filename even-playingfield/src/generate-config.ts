@@ -16,7 +16,9 @@ let defaultConfig = getDefaultsForSchema(ConfigSchema);
 let defaultLLMConfig = getDefaultsForSchema(LLMConfigSchema);
 defaultLLMConfig.prompt_replacement["role"] = "role_placeholder";
 let defaultModelConfig = getDefaultsForSchema(ModelConfigSchema);
-defaultLLMConfig.models["instructed"] = defaultModelConfig;
+defaultLLMConfig.models["general_analysis"] = defaultModelConfig;
+defaultLLMConfig.models["output_comparison"] = structuredClone(defaultModelConfig);
+defaultLLMConfig.models["output_comparison"].temperature = 0;
 defaultConfig.llm = defaultLLMConfig;
 
 let defaultAnalysisWorkflowEntry = getDefaultsForSchema(AnalysisWorkflowEntrySchema);
