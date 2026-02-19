@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 
 import {z} from "zod";
 
+import {ARGS} from "./args.ts";
 import {ConfigSchema} from "./config-schema.ts";
 
 
@@ -16,8 +17,8 @@ async function readConfig() {
     console.log(`Loading config`);
     
     let configFilePath: string;
-    if (process.argv.length >= 3) {
-        configFilePath = process.argv[2]!;
+    if (ARGS.values.config && ARGS.values.config.trim().length > 0) {
+        configFilePath = ARGS.values.config.trim();
         console.log(`Found config from command line argument: ${configFilePath}`);
     }
     else if (process.env[configURLEnvVar]) {
@@ -47,14 +48,18 @@ async function readConfig() {
         }
         configFileContents = await configResponse.text();
     } else {
-        console.log(`Loading config from file: ${configFilePath}`);
+        console.log(`Loading config from local file: ${configFilePath}`);
         configFileContents = readFileSync(configFilePath).toString();
     }
-
+    
+    console.assert(configFileContents.trim().length > 0, "Config file is empty");
+    
     let obj =  Bun.TOML.parse(configFileContents);
     const parsedConfig = ConfigSchema.safeParse(obj);
     if (!parsedConfig.success) {
         console.error("Config file is invalid:", parsedConfig.error.format());
+        console.log(`Config file contents:\n${configFileContents}`);
+        console.log(parsedConfig);
         throw new Error("Config file is invalid");
     }
     console.log(`Config loaded from ${configFilePath}`);

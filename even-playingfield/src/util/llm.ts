@@ -1,7 +1,8 @@
-import type {UserMessage} from "@openrouter/sdk/models";
+import type {SystemMessage, UserMessage} from "@openrouter/sdk/models";
 
 import {CONFIG} from "./config.ts";
 import type {WorkflowDependencies} from "../workflow";
+import {recordCompletionInput} from "./eval-harness.ts";
 
 
 export async function generateCompletion(deps: WorkflowDependencies,
@@ -10,7 +11,7 @@ export async function generateCompletion(deps: WorkflowDependencies,
                                          model: string,
                                          systemPrompt: string,
                                          content: UserMessage["content"]) {
-    let modelSettings = CONFIG.llm.models["model"];
+    let modelSettings = CONFIG.llm.models[model];
     if (!modelSettings) {
         throw new Error(`No model settings found for model "${model}"`);
     }
@@ -39,21 +40,24 @@ export async function generateCompletion(deps: WorkflowDependencies,
     }
     log(`Replaced ${replacedCount} instances of prompt variables in system prompt and content`);
     
+    let messages: (SystemMessage | UserMessage)[] = [
+        {
+            role: "system",
+            content: systemPrompt,
+        },
+        {
+            role: "user",
+            content: content,
+        }
+    ];
+    setTimeout(async ()=> await recordCompletionInput(messages), 5);
+    
     log("Sending chat completion request...");
     let startTime = Date.now();
     let completion = await deps.openRouter.chat.send({
         model: modelSettings.model_name,
         maxCompletionTokens: modelSettings.max_completion_tokens,
-        messages: [
-            {
-                role: "system",
-                content: systemPrompt,
-            },
-            {
-                role: "user",
-                content: content,
-            }
-        ],
+        messages: messages,
         stream: false,
         seed: deps.seed,
         frequencyPenalty: modelSettings.frequency_penalty,
