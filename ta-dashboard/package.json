@@ -23,6 +23,7 @@
 	"dependencies": {
 		"@zerodevx/svelte-toast": "^0.9.6",
 		"bulma": "^1.0.4",
+		"marked": "^17.0.3",
 		"my-svelte-components": "^0.1.0",
 		"octokit": "^5.0.5",
 		"svelte-persisted-store": "^0.12.0"

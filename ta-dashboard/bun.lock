@@ -7,18 +7,19 @@
       "dependencies": {
         "@zerodevx/svelte-toast": "^0.9.6",
         "bulma": "^1.0.4",
+        "marked": "^17.0.3",
         "my-svelte-components": "^0.1.0",
-        "octokit": "^5.0.3",
+        "octokit": "^5.0.5",
         "svelte-persisted-store": "^0.12.0",
       },
       "devDependencies": {
-        "@sveltejs/adapter-auto": "^6.1.0",
-        "@sveltejs/kit": "^2.43.2",
-        "@sveltejs/vite-plugin-svelte": "^6.2.0",
-        "svelte": "^5.39.5",
-        "svelte-check": "^4.3.2",
-        "typescript": "^5.9.2",
-        "vite": "^7.1.7",
+        "@sveltejs/adapter-auto": "^6.1.1",
+        "@sveltejs/kit": "^2.49.0",
+        "@sveltejs/vite-plugin-svelte": "^6.2.1",
+        "svelte": "^5.43.14",
+        "svelte-check": "^4.3.4",
+        "typescript": "^5.9.3",
+        "vite": "^7.2.4",
       },
     },
   },
@@ -244,6 +245,8 @@
     "locate-character": ["locate-character@3.0.0", "", {}, "sha512-SW13ws7BjaeJ6p7Q6CO2nchbYEc3X3J6WrmTTDto7yMPqVSZTUyY5Tjbid+Ab8gLnATtygYtiDIJGQRRn2ZOiA=="],
 
     "magic-string": ["magic-string@0.30.19", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-2N21sPY9Ws53PZvsEpVtNuSW+ScYbQdp4b9qUaL+9QkHUrGFKo56Lg9Emg5s9V/qrtNBmiR01sYhUOwu3H+VOw=="],
+
+    "marked": ["marked@17.0.3", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-jt1v2ObpyOKR8p4XaUJVk3YWRJ5n+i4+rjQopxvV32rSndTJXvIzuUdWWIy/1pFQMkQmvTXawzDNqOH/CUmx6A=="],
 
     "mri": ["mri@1.2.0", "", {}, "sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA=="],
 
