@@ -56,4 +56,5 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
         .replaceAll("[run]", runNum.toString());
     await Bun.write(outputFileName, completion.text);
     log(`Completion written to ${outputFileName}`);
+    deps.outputViewer.addFile(outputFileName, {type: "markdown", content: completion.text});
 }

@@ -6,6 +6,7 @@ import {CONFIG} from "./util/config.ts";
 import {executeTestingWorkflow} from "./workflow/testing-workflow.ts";
 import {executeAnalysisWorkflow} from "./workflow/analysis-workflow.ts";
 import type {WorkflowDependencies} from "./workflow";
+import {OutputViewer} from "./util/output-viewer.ts";
 
 
 console.log("EPF index.ts");
@@ -14,7 +15,8 @@ const workflowDependencies: WorkflowDependencies = {
     seed: Math.floor(Date.now() / 1000),
     openRouter: new OpenRouter({
         apiKey: CONFIG.vendors.openrouter.api_key,
-    })
+    }),
+    outputViewer: new OutputViewer(),
 }
 
 // Parallelize workflows with Promise.allSettled
@@ -51,5 +53,7 @@ if (failedIndices.length > 0) {
         console.warn(`Workflow '${slug}' failed:`, r.reason);
     });
 }
+
+workflowDependencies.outputViewer.display();
 
 console.log("index.ts done");
