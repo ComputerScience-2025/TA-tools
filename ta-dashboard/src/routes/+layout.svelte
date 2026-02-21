@@ -1,8 +1,7 @@
 <script lang="ts">
     import {SvelteToast} from "@zerodevx/svelte-toast";
     import "bulma/css/bulma.css";
-
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from "$lib/assets/favicon.svg";
 
 	let { children } = $props();
 </script>
@@ -14,3 +13,6 @@
 <SvelteToast />
 
 {@render children?.()}
+
+<style>
+</style>
