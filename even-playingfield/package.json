@@ -1,6 +1,6 @@
 {
   "name": "even-pf",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "module": "src/index.ts",
   "type": "module",
   "license": "UNLICENSED",

@@ -48,7 +48,7 @@ export class OutputViewer {
             params.set("comp", "gzip");
             params.set("data", Bun.gzipSync(fileRecord.content).toBase64());
             let url = `${FRONTEND_URL}#${params.toString()}`;
-            console.log(`${chalk.cyan(filename)}: ${url}`);
+            console.log(`${chalk.cyan(filename)}: ${url}` + "\n");
         }
     }
 }
