@@ -13,6 +13,3 @@
 <SvelteToast />
 
 {@render children?.()}
-
-<style>
-</style>

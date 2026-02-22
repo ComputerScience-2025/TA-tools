@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import "./version.ts";
+
 import {OpenRouter} from "@openrouter/sdk";
 
 import {CONFIG} from "./util/config.ts";
@@ -8,8 +10,6 @@ import {executeAnalysisWorkflow} from "./workflow/analysis-workflow.ts";
 import type {WorkflowDependencies} from "./workflow";
 import {OutputViewer} from "./util/output-viewer.ts";
 
-
-console.log("EPF index.ts");
 
 const workflowDependencies: WorkflowDependencies = {
     seed: Math.floor(Date.now() / 1000),

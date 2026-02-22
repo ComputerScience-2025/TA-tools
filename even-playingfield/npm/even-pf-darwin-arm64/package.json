@@ -1,0 +1,19 @@
+{
+  "name": "even-pf-darwin-arm64",
+  "version": "0.2.6",
+  "description": "macOS arm64 (Apple Silicon) binary for even-pf",
+  "license": "UNLICENSED",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "even-pf": "bin/even-pf"
+  },
+  "files": [
+    "bin/even-pf",
+    "package.json"
+  ]
+}

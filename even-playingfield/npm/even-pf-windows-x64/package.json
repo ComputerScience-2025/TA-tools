@@ -1,0 +1,19 @@
+{
+  "name": "even-pf-windows-x64",
+  "version": "0.2.6",
+  "description": "Windows x64 binary for even-pf",
+  "license": "UNLICENSED",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "even-pf": "bin/even-pf.exe"
+  },
+  "files": [
+    "bin/even-pf.exe",
+    "package.json"
+  ]
+}

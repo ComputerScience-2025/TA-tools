@@ -1,0 +1,19 @@
+{
+  "name": "even-pf-linux-x64",
+  "version": "0.2.6",
+  "description": "Linux x64 binary for even-pf",
+  "license": "UNLICENSED",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "even-pf": "bin/even-pf"
+  },
+  "files": [
+    "bin/even-pf",
+    "package.json"
+  ]
+}
