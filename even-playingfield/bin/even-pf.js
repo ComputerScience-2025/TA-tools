@@ -1,8 +1,8 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 "use strict";
 
 const { spawnSync } = require("child_process");
-const path = require("path");
+const { chmodSync, statSync } = require("fs");
 
 // Map process.platform + process.arch to the sub-package name and binary filename
 const PLATFORM_MAP = {
@@ -26,7 +26,6 @@ if (!entry) {
 
 let binaryPath;
 try {
-  // resolve the binary inside the optionally-installed platform sub-package
   binaryPath = require.resolve(`${entry.pkg}/bin/${entry.bin}`);
 } catch {
   console.error(
@@ -35,6 +34,18 @@ try {
     `  npm install ${entry.pkg}`
   );
   process.exit(1);
+}
+
+// Ensure the binary is executable — some environments strip the exec bit on install
+if (process.platform !== "win32") {
+  try {
+    const mode = statSync(binaryPath).mode;
+    if (!(mode & 0o111)) {
+      chmodSync(binaryPath, mode | 0o755);
+    }
+  } catch {
+    // best-effort; if chmod fails, let the spawn attempt proceed and fail naturally
+  }
 }
 
 const result = spawnSync(binaryPath, process.argv.slice(2), { stdio: "inherit" });

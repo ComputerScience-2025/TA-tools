@@ -4,7 +4,7 @@
 // Usage: bun scripts/build-all.ts
 
 import { join, dirname } from "path";
-import { mkdirSync } from "fs";
+import { mkdirSync, chmodSync } from "fs";
 
 type BunCompileTarget = Bun.Build.CompileTarget;
 
@@ -31,6 +31,8 @@ for (const { target, outfile } of targets) {
   const result = await Bun.build({
     entrypoints: [entrypoint],
     compile: { target, outfile },
+    format: "esm",
+    bytecode: false,
     define: { EPF_VERSION: JSON.stringify(version) },
   });
 
@@ -38,6 +40,11 @@ for (const { target, outfile } of targets) {
     console.error(`\x1b[31mBuild failed for target ${target}:\x1b[0m`);
     for (const log of result.logs) console.error(log);
     process.exit(1);
+  }
+
+  // Ensure the binary is executable on Unix targets (git and npm both preserve this bit)
+  if (!target.includes("windows")) {
+    chmodSync(outfile, 0o755);
   }
 }
 
