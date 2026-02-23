@@ -5,7 +5,7 @@ AI-assisted responsible grading tool for programming assignments. A GPT-wrapper 
 Make sure you have [Bun](https://bun.com) installed.
 To run:
 ```bash
-bunx even-pf [config]
+bunx --bun even-pf [config]
 ```
 
 ## Development

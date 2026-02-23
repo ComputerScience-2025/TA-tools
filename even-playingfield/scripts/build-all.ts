@@ -31,8 +31,6 @@ for (const { target, outfile } of targets) {
   const result = await Bun.build({
     entrypoints: [entrypoint],
     compile: { target, outfile },
-    format: "esm",
-    bytecode: false,
     define: { EPF_VERSION: JSON.stringify(version) },
   });
 
