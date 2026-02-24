@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 "use strict";
 
-import {spawnSync} from "child_process";
-import {chmodSync, statSync} from "fs";
+const { spawnSync } = require("child_process");
+const { chmodSync, statSync } = require("fs");
 
 // Map process.platform + process.arch to the sub-package name and binary filename
 const PLATFORM_MAP = {
@@ -56,3 +56,4 @@ if (result.error) {
 }
 
 process.exit(result.status ?? 0);
+
