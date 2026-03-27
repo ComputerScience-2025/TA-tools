@@ -8,6 +8,8 @@ To run:
 bunx --bun even-pf [config]
 ```
 
+If you're using the tool in a resource-constrained environment, you can use platform-specific executables like [even-pf-linux-x64](https://www.npmjs.com/package/even-pf-linux-x64).
+
 ## Development
 To install dependencies:
 ```bash
