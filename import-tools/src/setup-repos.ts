@@ -2,6 +2,7 @@ import {askForInternalRosterFile, RosterCreator} from "./helper/roster-internal.
 import {Naming} from "./helper/naming.ts";
 import {octokit, OctokitRequestError} from "./helper/service.ts";
 import {Config} from "./helper/config.ts";
+import {sleep} from "./helper/sleep.ts";
 
 console.log("Setting up repositories for students");
 
@@ -57,6 +58,7 @@ for (let student of roster.students) {
         });
         if (createRepoResp.status == 201) {
             console.log(`Repository "${repoName}" created`);
+            await sleep(1000); // Sleep for 1 second to ensure the repository is fully ready before adding files and collaborators
 
             // Initialize the repository with a README.md file
             console.log("Initializing repository...");

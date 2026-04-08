@@ -8,6 +8,9 @@ To run:
 bunx --bun even-pf [config]
 ```
 
+The `config` can be an absolute or relative path. Can also be a URL. 
+If not specified, it will first try to get `EPF_CONFIG_URL` environment variable, then look for `epf.toml` in the current and the home directory.
+
 If you're using the tool in a resource-constrained environment, you can use platform-specific executables like [even-pf-linux-x64](https://www.npmjs.com/package/even-pf-linux-x64).
 
 ## Development
