@@ -4,6 +4,7 @@ import {CanvasHelper} from "./helper/canvas.ts";
 import {octokit} from "./helper/service.ts";
 import {Config} from "./helper/config.ts";
 import {Naming} from "./helper/naming.ts";
+import {sleep} from "./helper/sleep.ts";
 
 
 console.log("Uploading files to repositories...");
@@ -66,16 +67,7 @@ for (let [studentID, fileArray] of files) {
     
     // Thanks to GitHub Copilot
     
-    // Step 1: Get the latest commit SHA of the base branch
-    console.log(`Getting latest commit SHA for base branch: ${baseBranch}`);
-    const { data: refData } = await octokit.rest.git.getRef({
-        owner: Config.GitHub.organizationName(),
-        repo: repoName,
-        ref: `heads/${baseBranch}`,
-    });
-    const latestCommitSha = refData.object.sha;
-    
-    // Step 2: Check if branch already exists and delete it
+    // Step 1: Check if branch already exists and delete it
     console.log(`Checking if branch ${newBranch} already exists...`);
     try {
         await octokit.rest.git.getRef({
@@ -104,6 +96,15 @@ for (let [studentID, fileArray] of files) {
         }
     }
     
+    // Step 2: Get the latest commit SHA of the base branch
+    console.log(`Getting latest commit SHA for base branch: ${baseBranch}`);
+    const { data: refData } = await octokit.rest.git.getRef({
+        owner: Config.GitHub.organizationName(),
+        repo: repoName,
+        ref: `heads/${baseBranch}`,
+    });
+    const latestCommitSha = refData.object.sha;
+    
     // Step 3: Create a new branch
     console.log(`Creating branch: ${newBranch}`);
     await octokit.rest.git.createRef({
@@ -112,6 +113,7 @@ for (let [studentID, fileArray] of files) {
         ref: `refs/heads/${newBranch}`,
         sha: latestCommitSha,
     });
+    await sleep(1000);
     
     // Step 4: Get the base tree from the latest commit
     console.log("Getting base tree...");
@@ -133,6 +135,7 @@ for (let [studentID, fileArray] of files) {
         });
         return { path: `${assignmentName}/${fileToAdd.actualFN}`, sha: blobData.sha };
     }));
+    await sleep(500);
     
     // Step 6: Create a new tree with the blobs, based on the existing tree
     console.log("Creating tree...");
@@ -147,6 +150,7 @@ for (let [studentID, fileArray] of files) {
             sha: blob.sha,
         })),
     });
+    await sleep(500);
     
     // Step 7: Create a new commit
     console.log("Creating commit...");
@@ -157,6 +161,8 @@ for (let [studentID, fileArray] of files) {
         tree: treeData.sha,
         parents: [latestCommitSha],
     });
+    console.log(`New commit created with SHA: ${newCommitData.sha}`);
+    await sleep(500);
     
     // Step 8: Update the new branch to point to the new commit
     console.log("Updating branch...");
@@ -166,8 +172,8 @@ for (let [studentID, fileArray] of files) {
         ref: `heads/${newBranch}`,
         sha: newCommitData.sha,
     });
-    
     console.log("Branch created and files added successfully!");
+    await sleep(1000);
     
     // Create a pull request
     console.log("Creating pull request...");
