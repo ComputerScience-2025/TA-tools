@@ -1,5 +1,16 @@
 import {z} from "zod";
 
+export enum OutputViewingModeEnum {
+    Local = "local",
+    WebUI = "webui",
+}
+
+export const OutputViewingConfigSchema = z.object({
+    mode: z.enum(OutputViewingModeEnum).default(OutputViewingModeEnum.WebUI),
+    api_port: z.number().min(1).max(65535).default(0), // 0 means random available port
+    webui_base_url: z.string().default("https://ta-tools-dashboard.vercel.app"),
+});
+
 export const ModelConfigSchema = z.object({
     sdk: z.enum(["openrouter"]).default("openrouter"),
     model_name: z.string().default(""),
@@ -69,6 +80,7 @@ export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 });
 
 export const ConfigSchema = z.object({
+    output_viewing: OutputViewingConfigSchema,
     llm: LLMConfigSchema,
     vendors: z.object({
         openrouter: z.object({

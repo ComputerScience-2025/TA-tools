@@ -1,3 +1,7 @@
+[output_viewing]
+mode = "webui"
+webui_base_url = "https://ta-tools-dashboard.vercel.app"
+
 [llm.models.general_analysis]
 sdk = "openrouter"
 model_name = ""
