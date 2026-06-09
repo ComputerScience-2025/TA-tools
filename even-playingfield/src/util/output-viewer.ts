@@ -92,14 +92,13 @@ export class OutputViewer {
                 
                 console.log("Click the following links to view the outputs in your browser:");
                 
-                const FRONTEND_URL = `${CONFIG.output_viewing.webui_base_url}/tools/md-viewer`;
                 let files = Object.entries(this.filesRecords).sort((a, b) => a[0].localeCompare(b[0]));
                 for (const [filename, fileRecord] of files) {
                     let params = new URLSearchParams();
                     params.set("name", filename);
                     params.set("comp", "gzip");
                     params.set("data", Bun.gzipSync(fileRecord.content).toBase64());
-                    let url = `${FRONTEND_URL}#${params.toString()}`;
+                    let url = `${CONFIG.output_viewing.webui_base_url}/tools/md-viewer#${params.toString()}`;
                     console.log(`${chalk.cyan(filename)}: ${url}` + "\n");
                 }
                 break
