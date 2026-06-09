@@ -1,0 +1,129 @@
+/* Shared dark mode styles for tools pages */
+
+:global(section[data-theme="dark"]) {
+    min-height: 100vh;
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+:global(section[data-theme="dark"] .title),
+:global(section[data-theme="dark"] .subtitle) {
+    color: #f0f0f0;
+}
+
+:global(section[data-theme="dark"] .box) {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+}
+
+:global(section[data-theme="dark"] .box p),
+:global(section[data-theme="dark"] .box strong),
+:global(section[data-theme="dark"] .box b) {
+    color: #e0e0e0;
+}
+
+:global(section[data-theme="dark"] .button.is-light) {
+    background-color: #2a2a2a;
+    color: #e0e0e0;
+    border-color: #555;
+}
+
+:global(section[data-theme="dark"] .message.is-warning) {
+    background-color: #3a2f00;
+}
+:global(section[data-theme="dark"] .message.is-warning .message-body) {
+    border-color: #ffe08a;
+    color: #ffe08a;
+    background-color: #3a2f00;
+}
+:global(section[data-theme="dark"] .message.is-warning .message-body strong),
+:global(section[data-theme="dark"] .message.is-warning .message-body code) {
+    color: #ffe08a;
+}
+
+:global(section[data-theme="dark"] .message.is-danger .message-header) {
+    background-color: #7a0a0a;
+    color: #fff;
+}
+:global(section[data-theme="dark"] .message.is-danger .message-body) {
+    border-color: #f14668;
+    color: #ffaaaa;
+    background-color: #2a0a0a;
+}
+
+:global(section[data-theme="dark"] .content) {
+    color: #e0e0e0;
+}
+
+:global(section[data-theme="dark"] .content p),
+:global(section[data-theme="dark"] .content li),
+:global(section[data-theme="dark"] .content td),
+:global(section[data-theme="dark"] .content th),
+:global(section[data-theme="dark"] .content dt),
+:global(section[data-theme="dark"] .content dd),
+:global(section[data-theme="dark"] .content figcaption),
+:global(section[data-theme="dark"] .content blockquote) {
+    color: #e0e0e0;
+}
+
+:global(section[data-theme="dark"] .content strong),
+:global(section[data-theme="dark"] .content b) {
+    color: #ffffff;
+}
+:global(section[data-theme="dark"] .content em) {
+    color: #cccccc;
+}
+
+:global(section[data-theme="dark"] .content h1),
+:global(section[data-theme="dark"] .content h2),
+:global(section[data-theme="dark"] .content h3),
+:global(section[data-theme="dark"] .content h4),
+:global(section[data-theme="dark"] .content h5),
+:global(section[data-theme="dark"] .content h6) {
+    color: #f0f0f0;
+}
+
+:global(section[data-theme="dark"] .content a) {
+    color: #82b4ff;
+}
+:global(section[data-theme="dark"] .content a:hover) {
+    color: #aaccff;
+}
+
+:global(section[data-theme="dark"] .content code),
+:global(section[data-theme="dark"] .content pre),
+:global(section[data-theme="dark"] code) {
+    background-color: #2a2a2a;
+    color: #f8c555;
+}
+:global(section[data-theme="dark"] .content pre code) {
+    background-color: transparent;
+    color: #f8c555;
+}
+
+:global(section[data-theme="dark"] .content blockquote) {
+    background-color: #1a1a1a;
+    border-left-color: #555;
+}
+
+:global(section[data-theme="dark"] .content hr) {
+    background-color: #444;
+}
+
+:global(section[data-theme="dark"] .content table thead td),
+:global(section[data-theme="dark"] .content table thead th) {
+    color: #f0f0f0;
+    border-color: #555;
+}
+:global(section[data-theme="dark"] .content table tbody tr:last-child td),
+:global(section[data-theme="dark"] .content table tbody tr:last-child th) {
+    border-color: #555;
+}
+:global(section[data-theme="dark"] .content table td),
+:global(section[data-theme="dark"] .content table th) {
+    border-color: #444;
+    color: #e0e0e0;
+}
+:global(section[data-theme="dark"] .content table tr:hover) {
+    background-color: #222;
+}

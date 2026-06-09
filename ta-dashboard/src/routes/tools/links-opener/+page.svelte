@@ -6,7 +6,7 @@
     let pullRequestNumber = $state("");
     let branchName = $state("");
 
-    function openToNewTal(url: string) {
+    function openToNewTab(url: string) {
         window.open(url, '_blank');
     }
 
@@ -17,17 +17,15 @@
         }
 
         if (pullRequestNumber) {
-            const prVCSWebURL = `${repositoryBaseURL.replace("github.com", "github.dev")}/pull/${pullRequestNumber}`;
-            const prFilesTabURL = `${repositoryBaseURL}/pull/${pullRequestNumber}/files`;
-            const prChecksTabURL = `${repositoryBaseURL}/pull/${pullRequestNumber}/checks`;
-            openToNewTal(prVCSWebURL);
-            openToNewTal(prFilesTabURL);
-            openToNewTal(prChecksTabURL);
+            openToNewTab(`${repositoryBaseURL.replace("github.com", "github.dev")}/pull/${pullRequestNumber}`);
+            openToNewTab(`${repositoryBaseURL}/pull/${pullRequestNumber}`);
+            openToNewTab(`${repositoryBaseURL}/pull/${pullRequestNumber}/files`);
+            openToNewTab(`${repositoryBaseURL}/pull/${pullRequestNumber}/checks`);
         }
 
         if (branchName) {
             const branchURL = `${repositoryBaseURL}/tree/${branchName}`;
-            openToNewTal(branchURL);
+            openToNewTab(branchURL);
         }
     }
 

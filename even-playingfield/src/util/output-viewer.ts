@@ -8,6 +8,22 @@ type FileRecord = {
     content: string;
 }
 
+const CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function jsonResponse(data: unknown, status = 200): Response {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: {
+            "Content-Type": "application/json",
+            ...CORS_HEADERS,
+        },
+    });
+}
+
 export class OutputViewer {
     filesRecords: Record<string, FileRecord> = {};
     displayed: boolean = false;
@@ -23,22 +39,49 @@ export class OutputViewer {
             port: CONFIG.output_viewing.api_port,
             routes: {
                 "/": (req) => {
-                    return new Response(JSON.stringify(files.map(([filename, fileRecord]) => filename)));
+                    if (req.method === "OPTIONS") {
+                        return new Response(null, { status: 204, headers: CORS_HEADERS });
+                    }
+                    return jsonResponse({
+                        files: files.map(([filename, fileRecord]) => ({
+                            name: filename,
+                            type: fileRecord.type,
+                        })),
+                    });
                 },
                 "/:slug": (req) => {
+                    if (req.method === "OPTIONS") {
+                        return new Response(null, { status: 204, headers: CORS_HEADERS });
+                    }
                     let slug = req.params.slug;
-                    console.log(`Request for slug: "${slug}"`);
-                    return new Response(this.filesRecords[slug]?.content ?? "Not Found");
+                    let record = this.filesRecords[slug];
+                    if (!record) {
+                        return jsonResponse({ error: "Not Found" }, 404);
+                    }
+                    return jsonResponse({
+                        name: slug,
+                        type: record.type,
+                        content: record.content,
+                    });
                 }
             },
             fetch(req) {
-                return new Response("Not Found (fallback)", { status: 404 });
+                if (req.method === "OPTIONS") {
+                    return new Response(null, { status: 204, headers: CORS_HEADERS });
+                }
+                return jsonResponse({ error: "Not Found" }, 404);
             },
         });
         console.log(server.url);
         return server.url.toString();
     }
     
+    private buildFrontendURL(apiURL: string): string {
+        const params = new URLSearchParams();
+        params.set("api", apiURL);
+        return `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer?${params.toString()}`;
+    }
+
     display() {
         switch (CONFIG.output_viewing.mode) {
             case OutputViewingModeEnum.Local:
@@ -49,7 +92,7 @@ export class OutputViewer {
                 
                 console.log("Click the following links to view the outputs in your browser:");
                 
-                const FRONTEND_URL = `${CONFIG.output_viewing.webui_base_url}/tools/md-viewer`; //TODO: not hardcode this
+                const FRONTEND_URL = `${CONFIG.output_viewing.webui_base_url}/tools/md-viewer`;
                 let files = Object.entries(this.filesRecords).sort((a, b) => a[0].localeCompare(b[0]));
                 for (const [filename, fileRecord] of files) {
                     let params = new URLSearchParams();
@@ -66,7 +109,10 @@ export class OutputViewer {
                 }
                 this.displayed = true;
                 let apiURL = this.serve();
-                // TODO: finish implementation
+                let frontendURL = this.buildFrontendURL(apiURL);
+                
+                console.log(chalk.cyan("Open the following URL to view all outputs:"));
+                console.log(frontendURL + "\n");
         }
         
     }

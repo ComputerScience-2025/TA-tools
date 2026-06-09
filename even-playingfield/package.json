@@ -15,7 +15,8 @@
     "config-gen": "bun run --console-depth 6 src/generate-config.ts"
   },
   "bin": {
-    "even-pf": "bin/even-pf.js"
+    "even-pf": "bin/even-pf.js",
+    "e-pf": "src/cli.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

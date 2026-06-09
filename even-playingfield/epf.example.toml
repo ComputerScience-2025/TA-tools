@@ -1,5 +1,6 @@
 [output_viewing]
 mode = "webui"
+api_port = 0
 webui_base_url = "https://ta-tools-dashboard.vercel.app"
 
 [llm.models.general_analysis]

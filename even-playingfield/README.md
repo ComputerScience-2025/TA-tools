@@ -21,7 +21,7 @@ bun install
 
 To install as a tool globally:
 ```bash
-bun link
+bun link -g e-pf
 ```
 
 Make sure you have a config file in your home or current directory. Alternatively, you can set environment variable `EPF_CONFIG_URL`.
