@@ -9,7 +9,7 @@
 	import { get } from "svelte/store";
 	import { page } from "$app/state";
 
-	import "$lib/dark-theme.css";
+
 
 	let isDark = $state(get(darkMode));
 
@@ -49,7 +49,10 @@
 			}
 		} catch (err) {
 			listLoadState = "error";
-			errorMessage = err instanceof Error ? err.message : "Failed to fetch file list";
+			errorMessage =
+				err instanceof Error
+					? err.message
+					: "Failed to fetch file list";
 		}
 	};
 
@@ -71,7 +74,8 @@
 			fileLoadState = "ready";
 		} catch (err) {
 			fileLoadState = "error";
-			errorMessage = err instanceof Error ? err.message : "Failed to fetch file";
+			errorMessage =
+				err instanceof Error ? err.message : "Failed to fetch file";
 			fileContent = "";
 			renderedHtml = "";
 		}
@@ -93,7 +97,7 @@
 	});
 </script>
 
-<section class="section" data-theme={isDark ? "dark" : "light"}>
+<section class="section">
 	<div class="container is-fluid">
 		<div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
 			<div>
@@ -125,10 +129,13 @@
 			</article>
 		{:else if listLoadState === "error"}
 			<article class="message is-danger">
-				<div class="message-header"><p>Unable to connect to API</p></div>
+				<div class="message-header">
+					<p>Unable to connect to API</p>
+				</div>
 				<div class="message-body">{errorMessage}</div>
 			</article>
-		{:else}
+		{/if}
+		{#if fileList.length > 0}
 			<div class="columns">
 				<div class="column is-3">
 					<aside class="menu">
@@ -147,9 +154,17 @@
 								</li>
 							{:else}
 								{#if listLoadState === "ready"}
-									<li><p class="has-text-grey px-3">No files yet. Waiting for output...</p></li>
+									<li>
+										<p class="has-text-grey px-3">
+											No files yet. Waiting for output...
+										</p>
+									</li>
 								{:else}
-									<li><p class="has-text-grey px-3">Loading...</p></li>
+									<li>
+										<p class="has-text-grey px-3">
+											Loading...
+										</p>
+									</li>
 								{/if}
 							{/each}
 						</ul>
@@ -221,46 +236,5 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 		font-size: 0.875rem;
-	}
-
-	:global(section[data-theme="dark"] .message.is-info .message-body) {
-		border-color: #3e8ed0;
-		color: #a0c4e8;
-		background-color: #1a2a3a;
-	}
-
-	:global(section[data-theme="dark"] .menu-label) {
-		color: #aaa;
-	}
-
-	:global(section[data-theme="dark"] .menu-list .menu-item-btn) {
-		color: #ccc;
-	}
-
-	:global(section[data-theme="dark"] .menu-list .menu-item-btn:hover) {
-		background-color: #2a2a2a;
-		color: #fff;
-	}
-
-	:global(section[data-theme="dark"] .menu-list .menu-item-btn.is-active) {
-		background-color: #485fc7;
-		color: #fff;
-	}
-
-	:global(section[data-theme="dark"] .tag) {
-		background-color: #333;
-		color: #ccc;
-	}
-
-	:global(section[data-theme="dark"] pre.raw-text) {
-		background-color: #2a2a2a;
-		color: #e0e0e0;
-	}
-
-	:global(section[data-theme="dark"] .progress) {
-		background-color: #2a2a2a;
-	}
-	:global(section[data-theme="dark"] .progress::-webkit-progress-bar) {
-		background-color: #2a2a2a;
 	}
 </style>

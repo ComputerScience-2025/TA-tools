@@ -8,7 +8,7 @@
 	import { darkMode } from "$lib/stores";
 	import { get } from "svelte/store";
 
-	import "$lib/dark-theme.css";
+
 
 	let isDark = $state(get(darkMode));
 
@@ -116,7 +116,7 @@
 	});
 </script>
 
-<section class="section" data-theme={isDark ? "dark" : "light"}>
+<section class="section">
 	<div class="container">
 		<div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
 			<div>

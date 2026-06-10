@@ -111,7 +111,8 @@ export class OutputViewer {
                 let frontendURL = this.buildFrontendURL(apiURL);
                 
                 console.log(chalk.cyan("Open the following URL to view all outputs:"));
-                console.log(frontendURL + "\n");
+                console.log(frontendURL);
+                console.log("Press Ctrl+C to stop the server")
         }
         
     }
