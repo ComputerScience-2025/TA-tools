@@ -12,6 +12,8 @@ top_p = 1
 frequency_penalty = 0
 presence_penalty = 0
 reasoning_effort = "high"
+max_retries = 1
+retry_delay_ms = 1000
 
 [llm.models.output_comparison]
 sdk = "openrouter"
@@ -22,6 +24,8 @@ top_p = 1
 frequency_penalty = 0
 presence_penalty = 0
 reasoning_effort = "high"
+max_retries = 1
+retry_delay_ms = 1000
 
 [llm.prompt_replacement]
 role = "role_placeholder"

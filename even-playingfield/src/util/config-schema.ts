@@ -1,4 +1,4 @@
-import {z} from "zod";
+import { z } from "zod";
 
 export enum OutputViewingModeEnum {
     Local = "local",
@@ -20,6 +20,8 @@ export const ModelConfigSchema = z.object({
     frequency_penalty: z.number().min(-2).max(2).default(0),
     presence_penalty: z.number().min(-2).max(2).default(0),
     reasoning_effort: z.enum(["low", "medium", "high"]).default("high"),
+    max_retries: z.number().min(0).default(1),  // 0 for no retry
+    retry_delay_ms: z.number().min(0).default(1000),
 });
 
 export const LLMConfigSchema = z.object({
@@ -45,7 +47,7 @@ export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
     prompt: z.string(),
 })
 
-export enum LLMJudgeInputModeEnum{
+export enum LLMJudgeInputModeEnum {
     None = "NONE",
     Diff = "DIFF",
     Full = "FULL",

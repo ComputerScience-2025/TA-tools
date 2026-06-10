@@ -1,4 +1,4 @@
-import {parseArgs} from "util";
+import { parseArgs } from "util";
 
 // console.log(Bun.argv);
 export const ARGS = parseArgs({
@@ -21,6 +21,11 @@ export const ARGS = parseArgs({
         skip_workflow: {
             type: "string",
             short: "S",
+            multiple: true,
+        },
+        only_workflows: {
+            type: "string",
+            short: "O",
             multiple: true,
         },
         completion_inputs_destination: {
