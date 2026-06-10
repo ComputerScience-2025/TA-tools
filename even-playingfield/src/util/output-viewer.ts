@@ -33,8 +33,6 @@ export class OutputViewer {
     }
     
     serve(): string {
-        let files = Object.entries(this.filesRecords).sort((a, b) => a[0].localeCompare(b[0]));
-        
         let server = Bun.serve({
             port: CONFIG.output_viewing.api_port,
             routes: {
@@ -42,6 +40,7 @@ export class OutputViewer {
                     if (req.method === "OPTIONS") {
                         return new Response(null, { status: 204, headers: CORS_HEADERS });
                     }
+                    let files = Object.entries(this.filesRecords).sort((a, b) => a[0].localeCompare(b[0]));
                     return jsonResponse({
                         files: files.map(([filename, fileRecord]) => ({
                             name: filename,
@@ -72,7 +71,7 @@ export class OutputViewer {
                 return jsonResponse({ error: "Not Found" }, 404);
             },
         });
-        console.log(server.url);
+        console.log(server.url.toString());
         return server.url.toString();
     }
     

@@ -293,6 +293,8 @@
 					{/if}
 				</div>
 			</div>
+		{:else}
+			<p>No Files</p>
 		{/if}
 	</div>
 </section>
