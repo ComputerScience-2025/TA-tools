@@ -76,17 +76,12 @@ export class OutputViewer {
         return server.url.toString();
     }
     
-    private buildFrontendURL(apiURL: string): string {
-        const params = new URLSearchParams();
-        params.set("api", apiURL);
-        return `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer?${params.toString()}`;
-    }
-
     display() {
+        let frontendURL = "";
         switch (CONFIG.output_viewing.mode) {
             case OutputViewingModeEnum.Local:
                 if (Object.keys(this.filesRecords).length === 0) {
-                    console.warn("No files to display");
+                    console.warn("No files to display (you can probably ignore this warning if your workflows haven't completed yet)");
                     return;
                 }
                 
@@ -98,17 +93,22 @@ export class OutputViewer {
                     params.set("name", filename);
                     params.set("comp", "gzip");
                     params.set("data", Bun.gzipSync(fileRecord.content).toBase64());
-                    let url = `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
-                    console.log(`${chalk.cyan(filename)}: ${url}` + "\n");
+                    frontendURL = `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
+                    console.log(`${chalk.cyan(filename)}: ${frontendURL}` + "\n");
                 }
                 break
             case OutputViewingModeEnum.WebUI:
                 if (this.displayed){
+                    console.log("Output viewer API is already running");
+                    console.log(frontendURL + "\n");
+                    console.log("Press Ctrl+C to stop")
                     return;
                 }
                 this.displayed = true;
                 let apiURL = this.serve();
-                let frontendURL = this.buildFrontendURL(apiURL);
+                let params = new URLSearchParams();
+                params.set("api", apiURL);
+                frontendURL = `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
                 
                 console.log(chalk.cyan("Open the following URL to view all outputs:"));
                 console.log(frontendURL);

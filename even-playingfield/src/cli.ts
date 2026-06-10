@@ -35,7 +35,7 @@ testingWorkflows.forEach((workflow) => {
         workflowRuns.push(executeTestingWorkflow(workflow, i+1, workflowDependencies));
     }
 });
-
+workflowDependencies.outputViewer.display();  // For start the server early.
 const workflowsResults = await Promise.allSettled(workflowRuns);
 // Summarize with indices to include slugs in failure logs
 const failedIndices: number[] = [];

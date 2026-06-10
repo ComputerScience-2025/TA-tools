@@ -7,12 +7,11 @@
 	import { marked } from "marked";
 
 	import { darkMode } from "$lib/stores";
-	import { page } from "$app/state";
 
 	type FileEntry = { name: string; type: "markdown" | "text" };
 	type LoadState = "idle" | "loading" | "ready" | "error";
 
-	let apiBase = $derived(page.url.searchParams.get("api")?.replace(/\/+$/, "") ?? "");
+	let apiBase = $state("");
 	let fileList = $state<FileEntry[]>([]);
 	let selectedName = $state("");
 	let selectedType = $state<"markdown" | "text">("markdown");
@@ -160,7 +159,14 @@
 	let refreshInterval: ReturnType<typeof setInterval> | undefined;
 
 	onMount(() => {
-		if (apiBase) {
+		const rawHash = window.location.hash.startsWith("#")
+			? window.location.hash.slice(1)
+			: window.location.hash;
+		const hashParams = new URLSearchParams(rawHash);
+		const apiParam = hashParams.get("api")?.replace(/\/+$/, "") ?? "";
+
+		if (apiParam) {
+			apiBase = apiParam;
 			void fetchFileList();
 			refreshInterval = setInterval(() => void fetchFileList(), 3000);
 			return () => {
@@ -210,7 +216,7 @@
 				<div class="message-body">
 					<p class="mb-2">Provide a source to get started:</p>
 					<ul>
-						<li>Live API: <code>?api=http://localhost:3000</code></li>
+						<li>Live API: <code>#api=http://localhost:3000</code></li>
 						<li>Hash file: <code>#name=file.md&amp;comp=gzip&amp;data=…</code></li>
 					</ul>
 				</div>
