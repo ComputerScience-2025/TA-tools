@@ -9,8 +9,6 @@
 	import { get } from "svelte/store";
 	import { page } from "$app/state";
 
-
-
 	let isDark = $state(get(darkMode));
 
 	$effect(() => {
@@ -92,16 +90,17 @@
 		void fetchFileList();
 		refreshInterval = setInterval(() => void fetchFileList(), 3000);
 		return () => {
-			if (refreshInterval) clearInterval(refreshInterval);
+			if (refreshInterval) {
+				clearInterval(refreshInterval);
+			}
 		};
 	});
 </script>
 
-<section class="section">
+<section class="section" style="padding: 0">
 	<div class="container is-fluid">
 		<div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
 			<div>
-				<h1 class="title mb-1">Results Viewer</h1>
 				<p class="subtitle mb-0">
 					Viewing outputs from
 					{#if apiBase}

@@ -81,7 +81,7 @@ These rules apply to the source code in the three packages listed above. They do
 - Double quotes for all strings (TypeScript, JavaScript, Svelte `<script>`, Python).
 - 4-space indentation.
 - Semicolons at end of every statement.
-- Curly braces required for all `if`/`else`/`for`/`while` branches.
+- Curly braces required for all `if`/`else`/`for`/`while` branches. Avoid single-line blocks.
 - No formatter is configured; follow these rules manually.
 - Do not remove existing comments unless explicitly asked.
 
