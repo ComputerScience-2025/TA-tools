@@ -5,15 +5,10 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { marked } from "marked";
+
 	import { darkMode } from "$lib/stores";
-	import { get } from "svelte/store";
 	import { page } from "$app/state";
 
-	let isDark = $state(get(darkMode));
-
-	$effect(() => {
-		darkMode.set(isDark);
-	});
 
 	type FileEntry = { name: string; type: "markdown" | "text" };
 	type LoadState = "idle" | "loading" | "ready" | "error";
@@ -112,10 +107,10 @@
 			</div>
 			<button
 				class="button is-light"
-				onclick={() => (isDark = !isDark)}
-				title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+				onclick={() => darkMode.update(v => !v)}
+				title={$darkMode ? "Switch to light mode" : "Switch to dark mode"}
 			>
-				{isDark ? "☀️ Light" : "🌙 Dark"}
+				{$darkMode ? "☀️ Light" : "🌙 Dark"}
 			</button>
 		</div>
 
