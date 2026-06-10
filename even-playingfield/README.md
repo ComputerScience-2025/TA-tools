@@ -28,6 +28,23 @@ Make sure you have a config file in your home or current directory. Alternativel
 
 This project was created using `bun init` in bun v1.3.2. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
 
+### Publishing
+After making changes, you might want to bump the version.
+```bash
+bun run bump <semver>
+```
+
+Build the executable:
+```bash
+bun run build:all 
+```
+
+Then publish to npm:
+```bash
+bun run publish:all
+```
+Do not run `bun publish` directly, the executables are distributed as separate packages and need to be published separately.
+
 ## Specs
 ### File-viewer Frontend
 In consideration of the tool might be running at a remote server, for easily viewing the Markdown files, we will use a simple file-viewer frontend.

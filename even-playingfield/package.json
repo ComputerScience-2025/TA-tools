@@ -1,13 +1,13 @@
 {
   "name": "even-pf",
-  "version": "0.3.4",
+  "version": "0.4.1",
   "description": "AI-assisted responsible grading tool for programming assignments",
   "module": "src/cli.ts",
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build-dev": "bun build src/cli.ts --compile --outfile build/epf",
+    "build:dev": "bun build src/cli.ts --compile --outfile build/epf",
     "build:all": "bun scripts/build-all.ts",
     "publish:all": "bun scripts/publish-all.ts",
     "publish:dry": "bun scripts/publish-all.ts --dry-run",
@@ -31,11 +31,11 @@
     "zod-defaults": "^0.2.3"
   },
   "optionalDependencies": {
-    "even-pf-linux-x64": "0.3.4",
-    "even-pf-linux-arm64": "0.3.4",
-    "even-pf-windows-x64": "0.3.4",
-    "even-pf-darwin-x64": "0.3.4",
-    "even-pf-darwin-arm64": "0.3.4"
+    "even-pf-linux-x64": "0.4.1",
+    "even-pf-linux-arm64": "0.4.1",
+    "even-pf-windows-x64": "0.4.1",
+    "even-pf-darwin-x64": "0.4.1",
+    "even-pf-darwin-arm64": "0.4.1"
   },
   "files": [
     "bin/even-pf.js",

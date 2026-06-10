@@ -21,7 +21,7 @@ const subPackages = [
 ];
 
 function npmPublish(cwd: string, label: string): void {
-  const args = ["npm", "publish", "--access", "public"];
+  const args = ["bun", "publish", "--access", "public"];
   if (dryRun) args.push("--dry-run");
 
   console.log(`\x1b[36mPublishing ${label}${dryRun ? " (dry run)" : ""}...\x1b[0m`);
