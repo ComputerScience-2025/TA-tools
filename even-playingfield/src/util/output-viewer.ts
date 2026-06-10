@@ -98,7 +98,7 @@ export class OutputViewer {
                     params.set("name", filename);
                     params.set("comp", "gzip");
                     params.set("data", Bun.gzipSync(fileRecord.content).toBase64());
-                    let url = `${CONFIG.output_viewing.webui_base_url}/tools/md-viewer#${params.toString()}`;
+                    let url = `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
                     console.log(`${chalk.cyan(filename)}: ${url}` + "\n");
                 }
                 break
