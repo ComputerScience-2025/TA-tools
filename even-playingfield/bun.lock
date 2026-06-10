@@ -14,11 +14,11 @@
         "@types/bun": "latest",
       },
       "optionalDependencies": {
-        "even-pf-darwin-arm64": "0.3.3",
-        "even-pf-darwin-x64": "0.3.3",
-        "even-pf-linux-arm64": "0.3.3",
-        "even-pf-linux-x64": "0.3.3",
-        "even-pf-windows-x64": "0.3.3",
+        "even-pf-darwin-arm64": "0.3.4",
+        "even-pf-darwin-x64": "0.3.4",
+        "even-pf-linux-arm64": "0.3.4",
+        "even-pf-linux-x64": "0.3.4",
+        "even-pf-windows-x64": "0.3.4",
       },
       "peerDependencies": {
         "typescript": "^5.9.3",
@@ -36,15 +36,15 @@
 
     "chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
-    "even-pf-darwin-arm64": ["even-pf-darwin-arm64@0.3.3", "", { "os": "darwin", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-pwgjCNFXqECN16/WeGxYN3xU9Zd/VXQD/ntmFqXZExIo8u+Wauo2AxgzRFEXtQXkO5Uf8GcCkRlUbJT+l8ZIuQ=="],
+    "even-pf-darwin-arm64": ["even-pf-darwin-arm64@0.3.4", "", { "os": "darwin", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-x2vTM0ogvlFhUiHqb13kXJTKPRPU/VdoZa1G51c3IHsZz7wdDpkD/DxcEvxAmO28MbJtfjxig8nRFMvld5J6jg=="],
 
-    "even-pf-darwin-x64": ["even-pf-darwin-x64@0.3.3", "", { "os": "darwin", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-WUZsqjDSjIJajoeOP8Lt/i4+of9hjxKLgGX4jg6tBpf/FEsnohLhg0tWzyCGGlOFV6t44Ug3Ke/H1eA4MCZAAQ=="],
+    "even-pf-darwin-x64": ["even-pf-darwin-x64@0.3.4", "", { "os": "darwin", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-L2hzBvSLFcWMB/MJQeZTQHI8mqpGMQ7T0tSPXjv4S1tFglF8ZtdxggDAhmItEyyqVfsAT6LY+HyOpJnUAga9tg=="],
 
-    "even-pf-linux-arm64": ["even-pf-linux-arm64@0.3.3", "", { "os": "linux", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-DPPMH2xpRqsv7MpjrzV1t0c3QpL4nqd2tuWQp+G3dZFgi9Cd7xk3O4i4C1e0iyrPXVgZs1oE03TJM/9l3Br07Q=="],
+    "even-pf-linux-arm64": ["even-pf-linux-arm64@0.3.4", "", { "os": "linux", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-/5nLtKs+8xvTHEkrVPQQ5XQBTKROmF42z6+fo4AOkOj/TbDGwCher6RYYMHQ6pD7M0jjF5AdSlj5HLEGf/N9Qg=="],
 
-    "even-pf-linux-x64": ["even-pf-linux-x64@0.3.3", "", { "os": "linux", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-1hXDMHqvX7iG6wPEL6CxVoS/F9Hz6hkiHccBPu0zTXV9Zircic95tOMRK5Z9OwG0g6nztJXEljJTi9qIl4uBJw=="],
+    "even-pf-linux-x64": ["even-pf-linux-x64@0.3.4", "", { "os": "linux", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-UN0wz2svjcjckugzFyc4tHxllrTM7IScSmnLDq5z9AB5cplHZrvAg8cYcvz20YEcHsr7aUkxrhA7iDv5KKYhkA=="],
 
-    "even-pf-windows-x64": ["even-pf-windows-x64@0.3.3", "", { "os": "win32", "cpu": "x64", "bin": { "even-pf": "bin/even-pf.exe" } }, "sha512-4hPLGNr4ZZ9h71PypVbT0pjpwLWFhveZ09budw/5A7P/12UE/BhJ+aemHEN1Ge9IJ2gPXNkLa2KSA6q99Zr/Rw=="],
+    "even-pf-windows-x64": ["even-pf-windows-x64@0.3.4", "", { "os": "win32", "cpu": "x64", "bin": { "even-pf": "bin/even-pf.exe" } }, "sha512-ni84uLUdo95TlACDUyz7Ia7+4wigSByvUuR+IrXbLzkN90mZTsJoZVbAoJMR8CnOlPPEClcPHqkTcYl1lbLOwA=="],
 
     "smol-toml": ["smol-toml@1.6.0", "", {}, "sha512-4zemZi0HvTnYwLfrpk/CF9LOd9Lt87kAt50GnqhMpyF9U3poDAP2+iukq2bZsO/ufegbYehBkqINbsWxj4l4cw=="],
 
