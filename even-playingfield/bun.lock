@@ -14,11 +14,11 @@
         "@types/bun": "latest",
       },
       "optionalDependencies": {
-        "even-pf-darwin-arm64": "0.4.1",
-        "even-pf-darwin-x64": "0.4.1",
-        "even-pf-linux-arm64": "0.4.1",
-        "even-pf-linux-x64": "0.4.1",
-        "even-pf-windows-x64": "0.4.1",
+        "even-pf-darwin-arm64": "0.4.2",
+        "even-pf-darwin-x64": "0.4.2",
+        "even-pf-linux-arm64": "0.4.2",
+        "even-pf-linux-x64": "0.4.2",
+        "even-pf-windows-x64": "0.4.2",
       },
       "peerDependencies": {
         "typescript": "^5.9.3",
@@ -35,16 +35,6 @@
     "bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 
     "chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
-
-    "even-pf-darwin-arm64": ["even-pf-darwin-arm64@0.4.1", "", { "os": "darwin", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-9TbVZCAX8fT64IhZUQ0zzOuKKMju/7/aMmjCB715J+aPTHeo2fcfY+WB7M/LpdKJ5/oGmIOeY/FtkVQz/eEvMA=="],
-
-    "even-pf-darwin-x64": ["even-pf-darwin-x64@0.4.1", "", { "os": "darwin", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-H9h76Atm/0tLZFj5RnMgkt9kFU5YdRQmj+bG7fTMQTR//C4O+NlmkG7B20KnZ8VYhu+XvLgUfwn27nVHRGtrjg=="],
-
-    "even-pf-linux-arm64": ["even-pf-linux-arm64@0.4.1", "", { "os": "linux", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-9lQ4hqdFXWbZ50wGH1J06KnUIo1NWZbweG7YbBlgCALV5dvy3yEgADv5PNa1Aulhtf2baOtgLKy/e5o7137nJw=="],
-
-    "even-pf-linux-x64": ["even-pf-linux-x64@0.4.1", "", { "os": "linux", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-N5nybG+JTkUTd0LeuzykgXrGiRYA8Ar3V6g6Dv+UiheNYC4Ge+EyseruSepxQK/B2RRMLZZ6aTWKKX655VVB1g=="],
-
-    "even-pf-windows-x64": ["even-pf-windows-x64@0.4.1", "", { "os": "win32", "cpu": "x64", "bin": { "even-pf": "bin/even-pf.exe" } }, "sha512-o+2jfiOMcAr6CW1suDMaN6f4oTbwgW0RQJtLglCmysebajxLfqoQQfy6GTBbzprZzTNvhIRBEHoqMyiicEyu3w=="],
 
     "smol-toml": ["smol-toml@1.6.0", "", {}, "sha512-4zemZi0HvTnYwLfrpk/CF9LOd9Lt87kAt50GnqhMpyF9U3poDAP2+iukq2bZsO/ufegbYehBkqINbsWxj4l4cw=="],
 
