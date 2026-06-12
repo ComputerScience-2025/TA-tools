@@ -8,7 +8,7 @@
 
 	import { darkMode } from "$lib/stores";
 
-	type FileEntry = { name: string; type: "markdown" | "text" };
+	type FileEntry = { name: string; type: "markdown" | "text"; modification_time: string };
 	type LoadState = "idle" | "loading" | "ready" | "error";
 
 	let apiBase = $state("");
@@ -21,6 +21,9 @@
 	let listLoadState = $state<LoadState>("idle");
 	let errorMessage = $state("");
 	let isHashSource = $state(false);
+	let selectedModificationTime = $derived(
+		fileList.find((f) => f.name === selectedName)?.modification_time ?? ""
+	);
 
 	// --- Base64 / gzip helpers ---
 
@@ -85,7 +88,7 @@
 			const name = nameParam || "document.md";
 			const type: "markdown" | "text" = name.endsWith(".md") ? "markdown" : "text";
 
-			fileList = [{ name, type }];
+			fileList = [{ name, type, modification_time: new Date().toISOString() }];
 			listLoadState = "ready";
 
 			selectedName = name;
@@ -112,7 +115,12 @@
 				throw new Error(`HTTP ${res.status}`);
 			}
 			const data = await res.json();
-			const newFiles: FileEntry[] = data.files ?? data;
+			const rawFiles: Array<{ name: string; type: "markdown" | "text"; modification_time?: unknown }> = data.files ?? data;
+			const newFiles: FileEntry[] = rawFiles.map((f) => ({
+				name: f.name,
+				type: f.type,
+				modification_time: new Date(f.modification_time as string | number | Date ?? Date.now()).toISOString(),
+			}));
 			const prevSelected = selectedName;
 			fileList = newFiles;
 			listLoadState = "ready";
@@ -277,7 +285,12 @@
 						</article>
 					{:else if fileLoadState === "ready"}
 						<div class="box">
-							<p class="has-text-weight-semibold is-family-monospace mb-3">{selectedName}</p>
+							<p class="has-text-weight-semibold is-family-monospace mb-3">
+								{selectedName}
+								{#if selectedModificationTime}
+									<span class="is-size-7 has-text-grey ml-2">{selectedModificationTime}</span>
+								{/if}
+							</p>
 							{#if selectedType === "markdown"}
 								<div class="content">
 									{@html renderedHtml}

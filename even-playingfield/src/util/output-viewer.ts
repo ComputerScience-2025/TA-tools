@@ -6,6 +6,7 @@ import {OutputViewingModeEnum} from "./config-schema.ts";
 type FileRecord = {
     type: "markdown" | "text";
     content: string;
+    modification_time: Date
 }
 
 const CORS_HEADERS = {
@@ -25,11 +26,14 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 export class OutputViewer {
-    filesRecords: Record<string, FileRecord> = {};
+    fileRecords: Record<string, FileRecord> = {};
     displayed: boolean = false;
     
-    addFile(filename: string, _: FileRecord): void {
-        this.filesRecords[filename] = _;
+    addFile(filename: string, fileRecord: Omit<FileRecord, "modification_time">): void {
+        this.fileRecords[filename] = {
+            ...fileRecord,
+            modification_time: new Date(),
+        };
     }
     
     serve(): string {
@@ -40,11 +44,12 @@ export class OutputViewer {
                     if (req.method === "OPTIONS") {
                         return new Response(null, { status: 204, headers: CORS_HEADERS });
                     }
-                    let files = Object.entries(this.filesRecords).sort((a, b) => a[0].localeCompare(b[0]));
+                    let files = Object.entries(this.fileRecords).sort((a, b) => a[0].localeCompare(b[0]));
                     return jsonResponse({
                         files: files.map(([filename, fileRecord]) => ({
                             name: filename,
                             type: fileRecord.type,
+                            modification_time: fileRecord.modification_time,
                         })),
                     });
                 },
@@ -53,7 +58,7 @@ export class OutputViewer {
                         return new Response(null, { status: 204, headers: CORS_HEADERS });
                     }
                     let slug = req.params.slug;
-                    let record = this.filesRecords[slug];
+                    let record = this.fileRecords[slug];
                     if (!record) {
                         return jsonResponse({ error: "Not Found" }, 404);
                     }
@@ -79,14 +84,14 @@ export class OutputViewer {
         let frontendURL = "";
         switch (CONFIG.output_viewing.mode) {
             case OutputViewingModeEnum.Local:
-                if (Object.keys(this.filesRecords).length === 0) {
+                if (Object.keys(this.fileRecords).length === 0) {
                     console.warn("No files to display (you can probably ignore this warning if your workflows haven't completed yet)");
                     return;
                 }
                 
                 console.log("Click the following links to view the outputs in your browser:");
                 
-                let files = Object.entries(this.filesRecords).sort((a, b) => a[0].localeCompare(b[0]));
+                let files = Object.entries(this.fileRecords).sort((a, b) => a[0].localeCompare(b[0]));
                 for (const [filename, fileRecord] of files) {
                     let params = new URLSearchParams();
                     params.set("name", filename);
