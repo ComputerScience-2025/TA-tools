@@ -1,5 +1,8 @@
 import { marked, type Tokens } from "marked";
 import hljs from "highlight.js";
+import { get } from "svelte/store";
+
+import { enableMultilineTableCode } from "$lib/stores";
 
 /**
  * Helper to highlight code with a fallback to plain text.
@@ -78,7 +81,10 @@ const renderer = new marked.Renderer();
 
 renderer.tablecell = function (token: Tokens.TableCell) {
     const defaultHtml: string = marked.Renderer.prototype.tablecell.call(this, token);
-    return expandCodeBlocksInCell(defaultHtml);
+    if (get(enableMultilineTableCode)) {
+        return expandCodeBlocksInCell(defaultHtml);
+    }
+    return defaultHtml;
 };
 
 // Also highlight regular standalone code blocks

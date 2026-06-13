@@ -4,9 +4,9 @@
 
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { marked } from "$lib/marked-config";
 
-	import { darkMode } from "$lib/stores";
+	import { marked } from "$lib/marked-config";
+	import { darkMode, enableMultilineTableCode } from "$lib/stores";
 
 	type FileEntry = { name: string; type: "markdown" | "text"; modification_time: string };
 	type LoadState = "idle" | "loading" | "ready" | "error";
@@ -24,6 +24,36 @@
 	let selectedModificationTime = $derived(
 		fileList.find((f) => f.name === selectedName)?.modification_time ?? ""
 	);
+
+	$effect(() => {
+		const content = fileContent;
+		const type = selectedType;
+		const enabled = $enableMultilineTableCode;
+		let active = true;
+
+		if (type === "markdown" && content) {
+			const parseMarkdown = async () => {
+				try {
+					const html = await marked.parse(content);
+					if (active) {
+						renderedHtml = html;
+					}
+				} catch (err) {
+					console.error(err);
+					if (active) {
+						renderedHtml = "";
+					}
+				}
+			};
+			void parseMarkdown();
+		} else {
+			renderedHtml = "";
+		}
+
+		return () => {
+			active = false;
+		};
+	});
 
 	// --- Base64 / gzip helpers ---
 
@@ -94,7 +124,6 @@
 			selectedName = name;
 			selectedType = type;
 			fileContent = text;
-			renderedHtml = type === "markdown" ? await marked.parse(text) : "";
 			fileLoadState = "ready";
 		} catch (err) {
 			listLoadState = "error";
@@ -153,14 +182,12 @@
 			const data = await res.json();
 			selectedType = data.type ?? "markdown";
 			fileContent = data.content ?? "";
-			renderedHtml = selectedType === "markdown" ? await marked.parse(fileContent) : "";
 			fileLoadState = "ready";
 		} catch (err) {
 			fileLoadState = "error";
 			errorMessage =
 				err instanceof Error ? err.message : "Failed to fetch file";
 			fileContent = "";
-			renderedHtml = "";
 		}
 	};
 
@@ -210,13 +237,25 @@
 					{/if}
 				</p>
 			</div>
-			<button
-				class="button is-light"
-				onclick={() => darkMode.update(v => !v)}
-				title={$darkMode ? "Switch to light mode" : "Switch to dark mode"}
-			>
-				{$darkMode ? "☀️ Light" : "🌙 Dark"}
-			</button>
+			<div class="is-flex is-align-items-center">
+				<label class="checkbox mr-4 label-text" for="multiline-toggle">
+					<input
+						type="checkbox"
+						checked={$enableMultilineTableCode}
+						onchange={(e) => enableMultilineTableCode.set(e.currentTarget.checked)}
+						id="multiline-toggle"
+						class="mr-2"
+					/>
+					Table Code Blocks
+				</label>
+				<button
+					class="button is-light"
+					onclick={() => darkMode.update((v) => !v)}
+					title={$darkMode ? "Switch to light mode" : "Switch to dark mode"}
+				>
+					{$darkMode ? "☀️ Light" : "🌙 Dark"}
+				</button>
+			</div>
 		</div>
 
 		{#if !apiBase && !isHashSource}
@@ -347,5 +386,19 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 		font-size: 0.875rem;
+	}
+	/* Label styles */
+	.label-text {
+		font-size: 0.9rem;
+		font-weight: 500;
+		color: #4a4a4a;
+		display: inline-flex;
+		align-items: center;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	:global(html[data-theme="dark"]) .label-text {
+		color: #f5f5f5;
 	}
 </style>
