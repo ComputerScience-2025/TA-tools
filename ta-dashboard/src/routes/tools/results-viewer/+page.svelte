@@ -19,7 +19,9 @@
 	let renderedHtml = $state("");
 	let fileLoadState = $state<LoadState>("idle");
 	let listLoadState = $state<LoadState>("idle");
-	let errorMessage = $state("");
+	let listErrorMessage = $state("");
+	let fileErrorMessage = $state("");
+	let isFetching = $state(false);
 	let isHashSource = $state(false);
 	let selectedModificationTime = $derived(
 		fileList.find((f) => f.name === selectedName)?.modification_time ?? ""
@@ -108,7 +110,7 @@
 
 		if (!SUPPORTED_COMPRESSIONS.has(compParam)) {
 			listLoadState = "error";
-			errorMessage = `Unsupported compression: ${compParam || "(empty)"}`;
+			listErrorMessage = `Unsupported compression: ${compParam || "(empty)"}`;
 			return;
 		}
 
@@ -128,18 +130,22 @@
 			fileLoadState = "ready";
 		} catch (err) {
 			listLoadState = "error";
-			errorMessage = err instanceof Error ? err.message : "Failed to decode hash content.";
+			listErrorMessage = err instanceof Error ? err.message : "Failed to decode hash content.";
 		}
 	};
 
 	// --- API source ---
 
 	const fetchFileList = async (): Promise<void> => {
-		if (!apiBase) {
+		if (!apiBase || isFetching) {
 			return;
 		}
+		isFetching = true;
 		try {
-			listLoadState = "loading";
+			// Only show the loading state on the initial fetch (no files yet).
+			if (fileList.length === 0) {
+				listLoadState = "loading";
+			}
 			const res = await fetch(`${apiBase}/`);
 			if (!res.ok) {
 				throw new Error(`HTTP ${res.status}`);
@@ -152,9 +158,22 @@
 				modification_time: new Date(f.modification_time as string | number | Date ?? Date.now()).toISOString(),
 			}));
 			const prevSelected = selectedName;
+			const prevModTime = fileList.find((f) => f.name === prevSelected)?.modification_time ?? "";
 			fileList = newFiles;
 			listLoadState = "ready";
-			if (prevSelected && fileList.some((f) => f.name === prevSelected)) {
+			const newEntry = fileList.find((f) => f.name === prevSelected);
+			if (prevSelected && newEntry) {
+				// If the server updated the selected file, refresh its content in the
+				// background WITHOUT touching selectedName. Guard the write-back so a
+				// user click that happened during the await is never overwritten.
+				if (newEntry.modification_time !== prevModTime) {
+					const contentRes = await fetch(`${apiBase}/${encodeURIComponent(prevSelected)}`);
+					if (contentRes.ok && selectedName === prevSelected) {
+						const contentData = await contentRes.json();
+						selectedType = contentData.type ?? "markdown";
+						fileContent = contentData.content ?? "";
+					}
+				}
 				return;
 			}
 			if (!selectedName && fileList.length > 0) {
@@ -162,10 +181,12 @@
 			}
 		} catch (err) {
 			listLoadState = "error";
-			errorMessage =
+			listErrorMessage =
 				err instanceof Error
 					? err.message
 					: "Failed to fetch file list";
+		} finally {
+			isFetching = false;
 		}
 	};
 
@@ -186,7 +207,7 @@
 			fileLoadState = "ready";
 		} catch (err) {
 			fileLoadState = "error";
-			errorMessage =
+			fileErrorMessage =
 				err instanceof Error ? err.message : "Failed to fetch file";
 			fileContent = "";
 		}
@@ -285,7 +306,7 @@
 				<div class="message-header">
 					<p>{apiBase ? "Unable to connect to API" : "Unable to decode file"}</p>
 				</div>
-				<div class="message-body">{errorMessage}</div>
+				<div class="message-body">{listErrorMessage}</div>
 			</article>
 		{/if}
 		{#if fileList.length > 0}
@@ -297,8 +318,7 @@
 							{#each fileList as file (file.name)}
 								<li>
 									<button
-										class="button is-text is-fullwidth has-text-left menu-item-btn"
-										class:is-active={selectedName === file.name}
+										class={"button is-text is-fullwidth has-text-left menu-item-btn" + (selectedName === file.name ? " is-active" : "")}
 										onclick={() => void selectFile(file.name)}
 										disabled={isHashSource}
 									>
@@ -306,20 +326,6 @@
 										<span class="tag is-small is-light ml-2">{file.type}</span>
 									</button>
 								</li>
-							{:else}
-								{#if listLoadState === "ready"}
-									<li>
-										<p class="has-text-grey px-3">
-											No files yet. Waiting for output...
-										</p>
-									</li>
-								{:else}
-									<li>
-										<p class="has-text-grey px-3">
-											Loading...
-										</p>
-									</li>
-								{/if}
 							{/each}
 						</ul>
 					</aside>
@@ -331,7 +337,7 @@
 					{:else if fileLoadState === "error"}
 						<article class="message is-danger">
 							<div class="message-header"><p>Failed to load file</p></div>
-							<div class="message-body">{errorMessage}</div>
+							<div class="message-body">{fileErrorMessage}</div>
 						</article>
 					{:else if fileLoadState === "ready"}
 						<div class="box">
