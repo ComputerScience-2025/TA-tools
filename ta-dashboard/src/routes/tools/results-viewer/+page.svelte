@@ -4,7 +4,7 @@
 
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { marked } from "marked";
+	import { marked } from "$lib/marked-config";
 
 	import { darkMode } from "$lib/stores";
 

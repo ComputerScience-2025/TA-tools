@@ -5,6 +5,10 @@
     import favicon from "$lib/assets/favicon.svg";
     import {darkMode} from "$lib/stores";
 
+    // Import syntax highlighting styles as inline strings
+    import githubLight from "highlight.js/styles/github.css?inline";
+    import githubDark from "highlight.js/styles/github-dark.css?inline";
+
     let { children } = $props();
 
     $effect(() => {
@@ -17,6 +21,7 @@
 
 <svelte:head>
     <link rel="icon" href={favicon} />
+    {@html `<style>${$darkMode ? githubDark : githubLight}</style>`}
 </svelte:head>
 
 <SvelteToast />
