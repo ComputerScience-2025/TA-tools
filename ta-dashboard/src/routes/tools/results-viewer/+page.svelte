@@ -331,7 +331,7 @@
 					</aside>
 				</div>
 
-				<div class="column is-10">
+				<div class="column is-10" style="min-width: 0; flex-shrink: 1;">
 					{#if fileLoadState === "loading"}
 						<progress class="progress is-small is-info" max="100"></progress>
 					{:else if fileLoadState === "error"}
@@ -340,7 +340,7 @@
 							<div class="message-body">{fileErrorMessage}</div>
 						</article>
 					{:else if fileLoadState === "ready"}
-						<div class="box">
+						<div class="box" style="overflow-x: auto;">
 							<p class="has-text-weight-semibold is-family-monospace mb-3">
 								{selectedName}
 								{#if selectedModificationTime}
@@ -425,4 +425,5 @@
 	:global(html[data-theme="dark"]) .label-text {
 		color: #f5f5f5;
 	}
+
 </style>
