@@ -1,6 +1,6 @@
-import {persisted} from "svelte-persisted-store";
+import { persisted } from "svelte-persisted-store";
 
 export const GITHUB_PAT = persisted("GITHUB_PAT", "");
 export const darkMode = persisted("darkMode", false);
 export const enableMultilineTableCode = persisted("enableMultilineTableCode", true);
-
+export const escapePipesInTableCode = persisted("escapePipesInTableCode", true);

@@ -2,7 +2,7 @@ import { marked, type Tokens } from "marked";
 import hljs from "highlight.js";
 import { get } from "svelte/store";
 
-import { enableMultilineTableCode } from "$lib/stores";
+import { enableMultilineTableCode, escapePipesInTableCode } from "$lib/stores";
 
 /**
  * Helper to highlight code with a fallback to plain text.
@@ -75,6 +75,58 @@ export function expandCodeBlocksInCell(cellHtml: string): string {
             return `<pre><code${cls}>${highlighted}</code></pre>`;
         }
     );
+}
+
+/**
+ * Escapes unescaped pipe characters (`|`) inside backtick code spans on
+ * table rows so that the markdown table parser does not treat them as column
+ * separators.  Only lines that begin with `|` (i.e. table rows) are touched.
+ *
+ * Robustness notes:
+ *  - Separator rows (`| --- | --- |`) contain no backticks and pass through unchanged.
+ *  - Already-escaped pipes (`\|`) are preserved via the lookbehind.
+ *  - Backtick fences of any length are matched via backreference so a run of N
+ *    backticks is only closed by another run of exactly N backticks, matching
+ *    the CommonMark spec.
+ *  - The `s` (dotAll) flag handles the `\n`-literal sequences that appear
+ *    when code blocks are inlined into a single table row.
+ */
+export function preprocessMarkdown(src: string): string {
+    if (!get(escapePipesInTableCode)) {
+        return src;
+    }
+    // Split on real newlines only; \n literals inside cells are handled by the regex.
+    const lines = src.split("\n");
+    const result: string[] = [];
+    // Matches a backtick fence of N backticks, then the shortest content that
+    // ends with the same N backticks.  The `s` flag allows `.` to match \n
+    // literals embedded in a single-line table cell.
+    const BACKTICK_SPAN_RE = /(`+)(.*?)\1/gs;
+    for (const line of lines) {
+        // Only process lines that look like table rows.
+        if (!line.trimStart().startsWith("|")) {
+            result.push(line);
+            continue;
+        }
+        // Skip pure separator rows — they never contain code spans.
+        if (/^\s*\|[\s|:-]+\|\s*$/.test(line)) {
+            result.push(line);
+            continue;
+        }
+        // Reset lastIndex before each use because the regex is defined outside
+        // the loop and has the `g` flag.
+        BACKTICK_SPAN_RE.lastIndex = 0;
+        const escaped = line.replace(
+            BACKTICK_SPAN_RE,
+            (_match: string, fence: string, content: string) => {
+                // Escape unescaped pipes inside the code span content.
+                const safeContent = content.replace(/(?<!\\)\|/g, "\\|");
+                return `${fence}${safeContent}${fence}`;
+            }
+        );
+        result.push(escaped);
+    }
+    return result.join("\n");
 }
 
 const renderer = new marked.Renderer();

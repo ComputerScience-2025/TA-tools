@@ -131,3 +131,4 @@ These rules apply to the source code in the three packages listed above. They do
 
 ### Functionality Expectations
 - Errors that cause core operations to fail should display clear indications in the UI and log details for debugging.
+- No transition animations or visual effects are required; focus on functionality and clarity.

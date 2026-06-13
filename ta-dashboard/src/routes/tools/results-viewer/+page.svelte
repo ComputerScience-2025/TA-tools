@@ -5,8 +5,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
-	import { marked } from "$lib/marked-config";
-	import { darkMode, enableMultilineTableCode } from "$lib/stores";
+	import { marked, preprocessMarkdown } from "$lib/marked-config";
+	import { darkMode, enableMultilineTableCode, escapePipesInTableCode } from "$lib/stores";
 
 	type FileEntry = { name: string; type: "markdown" | "text"; modification_time: string };
 	type LoadState = "idle" | "loading" | "ready" | "error";
@@ -29,12 +29,13 @@
 		const content = fileContent;
 		const type = selectedType;
 		const enabled = $enableMultilineTableCode;
+		const escapePipes = $escapePipesInTableCode;
 		let active = true;
 
 		if (type === "markdown" && content) {
 			const parseMarkdown = async () => {
 				try {
-					const html = await marked.parse(content);
+					const html = await marked.parse(preprocessMarkdown(content));
 					if (active) {
 						renderedHtml = html;
 					}
@@ -238,6 +239,16 @@
 				</p>
 			</div>
 			<div class="is-flex is-align-items-center">
+				<label class="checkbox mr-4 label-text" for="escape-pipes-toggle">
+					<input
+						type="checkbox"
+						checked={$escapePipesInTableCode}
+						onchange={(e) => escapePipesInTableCode.set(e.currentTarget.checked)}
+						id="escape-pipes-toggle"
+						class="mr-2"
+					/>
+					Escape Table Pipes
+				</label>
 				<label class="checkbox mr-4 label-text" for="multiline-toggle">
 					<input
 						type="checkbox"
@@ -387,6 +398,13 @@
 		word-break: break-word;
 		font-size: 0.875rem;
 	}
+	/* Remove the extra border Bulma adds around <pre> blocks — the hljs background
+	   already provides sufficient visual separation */
+	:global(.content pre) {
+		border: none;
+		padding: 0;
+	}
+
 	/* Label styles */
 	.label-text {
 		font-size: 0.9rem;
