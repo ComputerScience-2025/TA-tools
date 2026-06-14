@@ -13,7 +13,7 @@ const configURLEnvVar = "EPF_CONFIG_URL";
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-async function readConfig() {
+export async function readConfig() {
     console.log(`Loading config`);
     
     let configFilePath: string;

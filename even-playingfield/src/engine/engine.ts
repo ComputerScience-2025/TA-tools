@@ -4,6 +4,7 @@ import { OutputViewer } from "../util/output-viewer.ts";
 import { executeAnalysisWorkflow } from "../workflow/analysis-workflow.ts";
 import { executeTestingWorkflow } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
+import { readConfig } from "../util/config.ts";
 import type { Config } from "../util/config.ts";
 
 export type WorkflowRunResult = {
@@ -26,8 +27,8 @@ export type EngineStatus = {
  */
 export class Engine {
     readonly outputViewer: OutputViewer;
-    private readonly config: Config;
-    private readonly deps: WorkflowDependencies;
+    private config: Config;
+    private deps: WorkflowDependencies;
     private readonly inFlightSlugs: Set<string> = new Set();
 
     constructor(config: Config) {
@@ -116,6 +117,23 @@ export class Engine {
         }
 
         return results;
+    }
+
+    /**
+     * Reload config from the same source as the initial run.
+     * Reinitializes LLM settings and workflow lists.
+     * Does not affect output_viewing settings or in-flight workflows.
+     */
+    async reloadConfig(): Promise<void> {
+        const newConfig = await readConfig();
+        this.config = newConfig;
+        this.deps = {
+            seed: Math.floor(Date.now() / 1000),
+            openRouter: new OpenRouter({
+                apiKey: newConfig.vendors.openrouter.api_key,
+            }),
+            outputViewer: this.outputViewer,
+        };
     }
 
     /** Clear output files. If slugs provided, only clear matching filenames. */

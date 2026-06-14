@@ -11,6 +11,7 @@ export const COMMAND_NAMES: readonly string[] = [
     "clear",
     "status",
     "list",
+    "reload",
     "help",
     "exit",
     "quit",
@@ -21,6 +22,7 @@ const HELP_TEXT = `Available commands:
   clear [slug...]  Clear output files (all if no slug given)
   status           Show in-flight workflows and output file count
   list             Show all configured workflow slugs
+  reload           Reload config from the same source as startup
   help             Show this help message
   exit / quit      Shut down the program`;
 
@@ -48,6 +50,8 @@ export async function parseAndExecute(engine: Engine, rawInput: string): Promise
             return handleStatus(engine);
         case "list":
             return handleList(engine);
+        case "reload":
+            return await handleReload(engine);
         case "help":
             return { kind: "output", message: HELP_TEXT };
         case "exit":
@@ -136,4 +140,14 @@ function handleList(engine: Engine): CommandResult {
         return { kind: "output", message: "No workflows configured." };
     }
     return { kind: "output", message: lines.join("\n") };
+}
+
+async function handleReload(engine: Engine): Promise<CommandResult> {
+    try {
+        await engine.reloadConfig();
+        return { kind: "output", message: "Config reloaded successfully." };
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { kind: "error", message: `Failed to reload config: ${message}` };
+    }
 }
