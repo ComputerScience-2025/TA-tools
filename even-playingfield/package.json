@@ -1,41 +1,42 @@
 {
   "name": "even-pf",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "AI-assisted responsible grading tool for programming assignments",
-  "module": "src/cli.ts",
+  "module": "src/hosts/cli-host.ts",
   "type": "module",
   "license": "UNLICENSED",
   "scripts": {
-    "start": "bun run src/cli.ts",
-    "build:dev": "bun build src/cli.ts --compile --outfile build/epf",
+    "start": "bun run src/hosts/cli-host.ts",
+    "build:dev": "bun build src/hosts/cli-host.ts --compile --outfile build/epf",
     "build:all": "bun scripts/build-all.ts",
     "publish:all": "bun scripts/publish-all.ts",
     "publish:dry": "bun scripts/publish-all.ts --dry-run",
     "bump": "bun scripts/bump-version.ts",
-    "config-gen": "bun run --console-depth 6 src/generate-config.ts"
+    "config-gen": "bun run --console-depth 6 src/generate-config.ts",
+    "check": "bun x tsc --noEmit"
   },
   "bin": {
     "even-pf": "bin/even-pf.js",
-    "e-pf": "src/cli.ts"
+    "e-pf": "src/hosts/cli-host.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "1.3.14"
   },
   "peerDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@openrouter/sdk": "^0.5.1",
+    "@openrouter/sdk": "^0.12.79",
     "chalk": "^5.6.2",
-    "smol-toml": "^1.6.0",
+    "smol-toml": "^1.6.1",
     "zod-defaults": "^0.2.3"
   },
   "optionalDependencies": {
-    "even-pf-linux-x64": "0.4.2",
-    "even-pf-linux-arm64": "0.4.2",
-    "even-pf-windows-x64": "0.4.2",
-    "even-pf-darwin-x64": "0.4.2",
-    "even-pf-darwin-arm64": "0.4.2"
+    "even-pf-linux-x64": "0.5.0",
+    "even-pf-linux-arm64": "0.5.0",
+    "even-pf-windows-x64": "0.5.0",
+    "even-pf-darwin-x64": "0.5.0",
+    "even-pf-darwin-arm64": "0.5.0"
   },
   "files": [
     "bin/even-pf.js",

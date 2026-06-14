@@ -11,7 +11,7 @@ const homeDir: string = os.homedir();
 const defaultConfigFileName = "epf.toml";
 const configURLEnvVar = "EPF_CONFIG_URL";
 
-type Config = z.infer<typeof ConfigSchema>;
+export type Config = z.infer<typeof ConfigSchema>;
 
 async function readConfig() {
     console.log(`Loading config`);

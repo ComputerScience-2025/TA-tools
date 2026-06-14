@@ -1,4 +1,4 @@
-import type {SystemMessage, UserMessage} from "@openrouter/sdk/models";
+import type {ChatSystemMessage, ChatUserMessage} from "@openrouter/sdk/models";
 
 import {CONFIG} from "./config.ts";
 import type {WorkflowDependencies} from "../workflow";
@@ -14,7 +14,7 @@ export async function generateCompletion(deps: WorkflowDependencies,
                                          warn: (..._: any[])=>void,
                                          model: string,
                                          systemPrompt: string,
-                                         content: UserMessage["content"]) {
+                                         content: ChatUserMessage["content"]) {
     let modelSettings = CONFIG.llm.models[model];
     if (!modelSettings) {
         throw new Error(`No model settings found for model "${model}"`);
@@ -43,7 +43,7 @@ export async function generateCompletion(deps: WorkflowDependencies,
     }
     log(`Replaced ${replacedCount} instances of prompt variables in system prompt and content`);
 
-    let messages: (SystemMessage | UserMessage)[] = [
+    let messages: (ChatSystemMessage | ChatUserMessage)[] = [
         {
             role: "system",
             content: systemPrompt,
@@ -74,7 +74,7 @@ export async function generateCompletion(deps: WorkflowDependencies,
         let startTime = Date.now();
 
         try {
-            let completion = await deps.openRouter.chat.send({
+            let completion = await deps.openRouter.chat.send({chatRequest: {
                 model: modelSettings.model_name,
                 maxCompletionTokens: modelSettings.max_completion_tokens,
                 messages: messages,
@@ -86,7 +86,7 @@ export async function generateCompletion(deps: WorkflowDependencies,
                 reasoning: {
                     effort: modelSettings.reasoning_effort,
                 },
-            });
+            }});
             log(`Completion response received in ${(Date.now() - startTime) / 1000}s (attempt ${attemptLabel})`);
 
             const text = completion.choices[0]?.message.content?.toString() ?? "";

@@ -9,7 +9,7 @@ import { mkdirSync, chmodSync } from "fs";
 type BunCompileTarget = Bun.Build.CompileTarget;
 
 const root = join(import.meta.dir, "..");
-const entrypoint = join(root, "src", "cli.ts");
+const entrypoint = join(root, "src", "hosts", "cli-host.ts");
 
 const { version } = JSON.parse(await Bun.file(join(root, "package.json")).text()) as { version: string };
 
