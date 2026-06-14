@@ -13,9 +13,14 @@ export const CanvasHelper = {
         return `${parsed.personName}_${parsed.personID}_${parsed.fileID}_${parsed.actualFilename}`;
     },
     fixFileName: (originalName: string) => {
-        // turn the filename from "ABC-1.cs" to "ABC.cs"
-        if (/\w+-\d\.((cs)|(cpp)|(h))$/gm.test(originalName)) {
-            return originalName.replace(/-\d\./, ".");
+        // Strip UUID suffix: "UnitTest1-80a8d60a-75b2-4fda-a291-b72a36395bd9.cs" -> "UnitTest1.cs"
+        if (/\w+-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(cs|cpp|h)$/i.test(originalName)) {
+            return originalName.replace(/-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\./i, ".");
+        }
+
+        // Strip numeric suffix: "ABC-1.cs" -> "ABC.cs"
+        if (/\w+-\d+\.(cs|cpp|h)$/i.test(originalName)) {
+            return originalName.replace(/-\d+\./i, ".");
         }
         
         return originalName;
