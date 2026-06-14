@@ -1,6 +1,6 @@
 {
   "name": "even-pf-linux-arm64",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Linux arm64 binary for even-pf",
   "license": "UNLICENSED",
   "os": [
