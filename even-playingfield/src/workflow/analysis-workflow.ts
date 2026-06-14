@@ -1,11 +1,11 @@
-import {Glob} from "bun";
+import { Glob } from "bun";
 
 import chalk from "chalk";
 
-import {CONFIG} from "../util/config.ts";
-import {FilePayloadGenerator} from "../util/file-payload.ts";
-import type {WorkflowDependencies} from "./index.ts";
-import {generateCompletion} from "../util/llm.ts";
+import { CONFIG } from "../util/config.ts";
+import { FilePayloadGenerator } from "../util/file-payload.ts";
+import type { WorkflowDependencies } from "./index.ts";
+import { generateCompletion } from "../util/llm.ts";
 
 
 export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number, deps: WorkflowDependencies) {
@@ -16,7 +16,7 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
     const warn = (...args: Parameters<typeof console.warn>) => {
         console.warn(chalk.red(`[${workflow.slug}]`), ...args);
     }
-    
+
     let allFiles = (
         await Promise.all(
             workflow.input_files_searches.map(async (fileSearch) => {
@@ -35,7 +35,7 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
             })
         )
     ).flat();
-    
+
     if (allFiles.length === 0) {
         warn(`No files found for workflow, skipping...`);
         return;
@@ -54,7 +54,7 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
         .replaceAll("[slug]", workflow.slug)
         .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
         .replaceAll("[run]", runNum.toString());
-    await Bun.write(outputFileName, completion.text);
-    log(`Completion written to ${outputFileName}`);
-    deps.outputViewer.addFile(outputFileName, {type: "markdown", content: completion.text});
+
+    await deps.outputViewer.addFile(outputFileName, { type: "markdown", content: completion.text });
+    log(`Completion saved as ${outputFileName}`);
 }

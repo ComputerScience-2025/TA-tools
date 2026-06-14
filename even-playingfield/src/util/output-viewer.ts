@@ -1,7 +1,7 @@
 import chalk from "chalk";
 
-import {CONFIG} from "./config.ts";
-import {OutputViewingModeEnum} from "./config-schema.ts";
+import { CONFIG } from "./config.ts";
+import { OutputViewingModeEnum } from "./config-schema.ts";
 
 type FileRecord = {
     type: "markdown" | "text";
@@ -28,14 +28,15 @@ function jsonResponse(data: unknown, status = 200): Response {
 export class OutputViewer {
     fileRecords: Record<string, FileRecord> = {};
     displayed: boolean = false;
-    
-    addFile(filename: string, fileRecord: Omit<FileRecord, "modification_time">): void {
+
+    async addFile(filename: string, fileRecord: Omit<FileRecord, "modification_time">): Promise<void> {
+        await Bun.write(filename, fileRecord.content);
         this.fileRecords[filename] = {
             ...fileRecord,
             modification_time: new Date(),
         };
     }
-    
+
     serve(): string {
         let server = Bun.serve({
             port: CONFIG.output_viewing.api_port,
@@ -79,7 +80,7 @@ export class OutputViewer {
         console.log(server.url.toString());
         return server.url.toString();
     }
-    
+
     display() {
         let frontendURL = "";
         switch (CONFIG.output_viewing.mode) {
@@ -88,9 +89,9 @@ export class OutputViewer {
                     console.warn("No files to display (you can probably ignore this warning if your workflows haven't completed yet)");
                     return;
                 }
-                
+
                 console.log("Click the following links to view the outputs in your browser:");
-                
+
                 let files = Object.entries(this.fileRecords).sort((a, b) => a[0].localeCompare(b[0]));
                 for (const [filename, fileRecord] of files) {
                     let params = new URLSearchParams();
@@ -102,7 +103,7 @@ export class OutputViewer {
                 }
                 break
             case OutputViewingModeEnum.WebUI:
-                if (this.displayed){
+                if (this.displayed) {
                     console.log("Output viewer API is already running");
                     console.log(frontendURL + "\n");
                     console.log("Press Ctrl+C to stop")
@@ -113,11 +114,11 @@ export class OutputViewer {
                 let params = new URLSearchParams();
                 params.set("api", apiURL);
                 frontendURL = `${CONFIG.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
-                
+
                 console.log(chalk.cyan("Open the following URL to view all outputs:"));
                 console.log(frontendURL);
                 console.log("Press Ctrl+C to stop the server")
         }
-        
+
     }
 }

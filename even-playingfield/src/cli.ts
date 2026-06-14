@@ -2,14 +2,14 @@
 
 import "./version.ts";
 
-import {OpenRouter} from "@openrouter/sdk";
+import { OpenRouter } from "@openrouter/sdk";
 
-import {ARGS} from "./util/args.ts";
-import {CONFIG} from "./util/config.ts";
-import {executeTestingWorkflow} from "./workflow/testing-workflow.ts";
-import {executeAnalysisWorkflow} from "./workflow/analysis-workflow.ts";
-import type {WorkflowDependencies} from "./workflow";
-import {OutputViewer} from "./util/output-viewer.ts";
+import { ARGS } from "./util/args.ts";
+import { CONFIG } from "./util/config.ts";
+import { executeTestingWorkflow } from "./workflow/testing-workflow.ts";
+import { executeAnalysisWorkflow } from "./workflow/analysis-workflow.ts";
+import type { WorkflowDependencies } from "./workflow";
+import { OutputViewer } from "./util/output-viewer.ts";
 
 
 const workflowDependencies: WorkflowDependencies = {
@@ -55,13 +55,13 @@ const workflowRuns: Promise<void>[] = [];
 const workflowRunSlugs: string[] = [];
 analysisWorkflows.forEach((workflow) => {
     for (let i = 0; i < workflow.runs; i++) {
-        workflowRuns.push(executeAnalysisWorkflow(workflow, i+1, workflowDependencies));
+        workflowRuns.push(executeAnalysisWorkflow(workflow, i + 1, workflowDependencies));
         workflowRunSlugs.push(workflow.slug);
     }
 });
 testingWorkflows.forEach((workflow) => {
     for (let i = 0; i < workflow.runs; i++) {
-        workflowRuns.push(executeTestingWorkflow(workflow, i+1, workflowDependencies));
+        workflowRuns.push(executeTestingWorkflow(workflow, i + 1, workflowDependencies));
         workflowRunSlugs.push(workflow.slug);
     }
 });
@@ -86,4 +86,4 @@ if (failedIndices.length > 0) {
 
 workflowDependencies.outputViewer.display();
 
-console.log("index.ts done");
+console.log(`index.ts done at ${new Date().toLocaleTimeString()}`);
