@@ -94,6 +94,16 @@ function completer(line: string): [string[], string] {
     return [[], line];
 }
 
+// --- Catch SDK-internal async errors that escape try/catch ---
+// The OpenRouter SDK can throw network errors (e.g. ECONNRESET) from
+// internally-spawned micro-tasks (e.g. response.text() inside matchFunc),
+// after chat.send() has already been awaited. These surface as unhandled
+// promise rejections and would crash Bun without this handler.
+process.on("unhandledRejection", (reason: unknown) => {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    console.error(chalk.red(`[epf] Unhandled async error (process kept alive): ${message}`));
+});
+
 // --- REPL loop ---
 const rl = createInterface({
     input: process.stdin,
