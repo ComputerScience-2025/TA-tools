@@ -8,6 +8,7 @@ export type CommandResult = {
 /** All recognized command names — exported for tab-completion. */
 export const COMMAND_NAMES: readonly string[] = [
     "run",
+    "rerun",
     "clear",
     "status",
     "list",
@@ -18,7 +19,8 @@ export const COMMAND_NAMES: readonly string[] = [
 ] as const;
 
 const HELP_TEXT = `Available commands:
-  run [slug...]    Re-run workflows (all if no slug given)
+  run [slug...]    Run workflows (all if no slug given)
+  rerun [slug...]  Clear outputs then re-run workflows (all if no slug given)
   clear [slug...]  Clear output files (all if no slug given)
   status           Show in-flight workflows and output file count
   list             Show all configured workflow slugs
@@ -44,6 +46,8 @@ export async function parseAndExecute(engine: Engine, rawInput: string): Promise
     switch (command) {
         case "run":
             return await handleRun(engine, args);
+        case "rerun":
+            return await handleRerun(engine, args);
         case "clear":
             return handleClear(engine, args);
         case "status":
@@ -101,6 +105,16 @@ function handleClear(engine: Engine, slugs: string[]): CommandResult {
     engine.clearResults(filter);
     const target = filter ? filter.join(", ") : "all";
     return { kind: "output", message: `Cleared results: ${target}` };
+}
+
+async function handleRerun(engine: Engine, slugs: string[]): Promise<CommandResult> {
+    // Resolve output_filename prefixes from config for the matched workflows so that
+    // clearing uses the config-defined filename pattern rather than the raw slug args.
+    // This is necessary because output filenames may be abbreviated relative to the slug.
+    const onlySlugs = slugs.length > 0 ? slugs : undefined;
+    const filePatterns = engine.resolveOutputFilePatterns(onlySlugs);
+    engine.clearResults(filePatterns.length > 0 ? filePatterns : undefined);
+    return await handleRun(engine, slugs);
 }
 
 function handleStatus(engine: Engine): CommandResult {

@@ -81,9 +81,9 @@ function completer(line: string): [string[], string] {
         return [hits, trimmed];
     }
 
-    // Completing workflow slugs for "run" and "clear"
+    // Completing workflow slugs for "run", "rerun", and "clear"
     const command = parts[0]!.toLowerCase();
-    if (command === "run" || command === "clear") {
+    if (command === "run" || command === "rerun" || command === "clear") {
         const partial = parts[parts.length - 1]!;
         const workflows = engine.listWorkflows();
         const allSlugs = [...workflows.analysis, ...workflows.testing];

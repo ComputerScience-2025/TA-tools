@@ -141,6 +141,25 @@ export class Engine {
         this.outputViewer.clearFiles(slugFilter);
     }
 
+    /**
+     * Resolve the static filename prefix for each workflow matched by the slug filter.
+     * Uses the literal portion of `output_filename` before the first `[` placeholder,
+     * which is the stable, config-defined part of the filename regardless of runtime
+     * values ([seed], [model], [run], etc.).
+     * Pass the result to clearResults() to accurately target the right output files.
+     */
+    resolveOutputFilePatterns(slugs?: string[]): string[] {
+        const onlySlugs = slugs && slugs.length > 0 ? slugs : undefined;
+        const allWorkflows = [
+            ...this.applyFilters(this.config.analysis_workflows, onlySlugs),
+            ...this.applyFilters(this.config.testing_workflows, onlySlugs),
+        ];
+        return allWorkflows.map((w) => {
+            const bracketIdx = w.output_filename.indexOf("[");
+            return bracketIdx === -1 ? w.output_filename : w.output_filename.slice(0, bracketIdx);
+        });
+    }
+
     /** Return current engine state snapshot. */
     getStatus(): EngineStatus {
         return {
