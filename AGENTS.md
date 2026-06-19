@@ -2,13 +2,14 @@
 
 ## Repository overview
 
-Three independent packages in this directory. Each has its own `package.json`, `tsconfig.json`, `bun.lock`, and scripts. There is no workspace tool; run `bun install` inside each package individually. **Bun** is the only runtime and package manager — never use `npm`, `pnpm`, or `yarn`.
+Four independent packages in this directory. Each has its own `package.json`, `tsconfig.json`, `bun.lock`, and scripts. There is no workspace tool; run `bun install` inside each package individually. **Bun** is the only runtime and package manager — never use `npm`, `pnpm`, or `yarn`.
 
 | Package | Type | Purpose | Dev entry | Build |
 |---|---|---|---|---|
 | `import-tools/` | GitHub automation scripts (CLI) | Upload files downloaded from Canvas to GitHub repos | `src/*.ts` via `bun run <script>` | — |
 | `even-playingfield/` | Compiled CLI binary | The AI tool for analyzing submissions | `src/cli.ts` | `bun build --compile` |
 | `ta-dashboard/` | SvelteKit + Svelte 5 + Bulma | Everything that needs an interactive web interface | `src/routes/` (SvelteKit) | `bun run build` |
+| `epf-eval/` | Benchmark harness (git submodule) | Proprietary evaluation benchmark for `even-playingfield` | `src/scripts/*.ts` via `bun run script:<name>` | — |
 
 ---
 
@@ -63,6 +64,29 @@ SvelteKit conventions:
 - Pages that call GitHub API (`comments-calculator`) do so client-side via Octokit — PAT is read from a persisted Svelte store.
 
 Styling: Bulma CSS classes. Toast notifications via `@zerodevx/svelte-toast`. Markdown rendering via `marked`.
+
+### `epf-eval/`
+
+Commands (run in `epf-eval/`):
+- `bun run script:run-suite` — run EPF over the dataset and collect outputs + telemetry
+- `bun run script:score` — score captured outputs with LLM-as-judge and metrics
+- `bun run script:variants` — generate deterministic synthetic variants (static set)
+- `bun run check` — type check with `bun x tsc --noEmit`
+
+Dataset layout:
+
+```text
+dataset/v1/<case>/
+├── src/            # student source files
+└── eval/
+    ├── case.toml   # case metadata, file globs, prompt replacements
+    ├── gold.toml   # expected issues / rubric
+    └── epf.toml    # per-case EPF config
+```
+
+Shared code: reuses `../even-playingfield/src/util/llm.ts` (Vercel AI SDK). For now the harness invokes `bun run ../even-playingfield/src/hosts/cli-host.ts`; a later phase adds an in-process `Engine` entry point for richer telemetry.
+
+Evaluation criteria are stored in TOML files under each case's `eval/` directory and aggregated by the bench harness. The LLM-as-judge uses OpenAI-compatible endpoints only.
 
 ---
 
