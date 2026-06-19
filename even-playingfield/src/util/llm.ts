@@ -1,38 +1,114 @@
-import type {ChatSystemMessage, ChatUserMessage} from "@openrouter/sdk/models";
+import { generateText, type JSONValue, type LanguageModel } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
-import {CONFIG} from "./config.ts";
-import type {WorkflowDependencies} from "../workflow";
-import {recordCompletionInput} from "./eval-harness.ts";
+import { CONFIG } from "./config.ts";
+import { ProviderSDKEnum } from "./config-schema.ts";
+import type { WorkflowDependencies } from "../workflow/index.ts";
+import { recordCompletionInput } from "./eval-harness.ts";
 
+
+type UserContent = string | Array<{ type: "text"; text: string }>;
+
+type Provider = (modelId: string) => LanguageModel;
+
+const providerCache = new Map<string, Provider>();
+
+export function clearProviderCache(): void {
+    providerCache.clear();
+}
+
+function createProvider(providerName: string): Provider {
+    const cached = providerCache.get(providerName);
+    if (cached) {
+        return cached;
+    }
+
+    const providerConfig = CONFIG.llm.providers[providerName];
+    if (!providerConfig) {
+        throw new Error(`No provider config found for provider "${providerName}"`);
+    }
+
+    // api_key is intentionally required in TOML. We deliberately pass it here
+    // so the Vercel AI SDK does not fall back to its env-var defaults.
+    const options: { apiKey: string; baseURL?: string } = {
+        apiKey: providerConfig.api_key,
+    };
+    if (providerConfig.endpoint.length > 0) {
+        options.baseURL = providerConfig.endpoint;
+    }
+
+    let provider: Provider;
+    switch (providerConfig.sdk) {
+        case ProviderSDKEnum.OpenAI:
+            provider = createOpenAI(options);
+            break;
+        case ProviderSDKEnum.Anthropic:
+            provider = createAnthropic(options);
+            break;
+        case ProviderSDKEnum.Google:
+            provider = createGoogleGenerativeAI(options);
+            break;
+        default:
+            throw new Error(`Unsupported SDK "${providerConfig.sdk}" for provider "${providerName}"`);
+    }
+
+    providerCache.set(providerName, provider);
+    return provider;
+}
+
+function buildProviderOptions(modelSettings: typeof CONFIG.llm.models[string],
+                              sdk: ProviderSDKEnum): Record<string, Record<string, JSONValue>> {
+    // We intentionally support only provider-native reasoning-level options.
+    // Budget-based thinking (Anthropic thinking.budgetTokens / Google thinkingConfig.thinkingBudget)
+    // is not supported because those models are considered old for this project.
+    switch (sdk) {
+        case ProviderSDKEnum.OpenAI:
+            return { openai: { reasoningEffort: modelSettings.reasoning_effort } };
+        case ProviderSDKEnum.Anthropic:
+            return { anthropic: { effort: modelSettings.reasoning_effort } };
+        case ProviderSDKEnum.Google:
+            if (modelSettings.reasoning_effort === "xhigh") {
+                throw new Error(`Google provider does not support reasoning_effort "xhigh"; use "low", "medium", or "high"`);
+            }
+            return { google: { thinkingConfig: { thinkingLevel: modelSettings.reasoning_effort } } };
+    }
+}
 
 async function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function generateCompletion(deps: WorkflowDependencies,
-                                         log: (..._: any[])=>void,
-                                         warn: (..._: any[])=>void,
+                                         log: (..._: any[]) => void,
+                                         warn: (..._: any[]) => void,
                                          model: string,
                                          systemPrompt: string,
-                                         content: ChatUserMessage["content"]) {
-    let modelSettings = CONFIG.llm.models[model];
+                                         content: UserContent) {
+    const modelSettings = CONFIG.llm.models[model];
     if (!modelSettings) {
         throw new Error(`No model settings found for model "${model}"`);
     }
 
+    const providerConfig = CONFIG.llm.providers[modelSettings.provider];
+    if (!providerConfig) {
+        throw new Error(`Model "${model}" references unknown provider "${modelSettings.provider}"`);
+    }
+
     let replacedCount = 0;
     for (const [replacementKey, replacementValue] of Object.entries(CONFIG.llm.prompt_replacement)) {
-        if (systemPrompt.includes(replacementKey)) {replacedCount++;}
+        if (systemPrompt.includes(replacementKey)) { replacedCount++; }
         systemPrompt = systemPrompt.replaceAll(`{{${replacementKey}}}`, replacementValue);
         if (typeof content === "string") {
-            if (content.includes(replacementKey)) {replacedCount++;}
+            if (content.includes(replacementKey)) { replacedCount++; }
             content = content.replaceAll(`{{${replacementKey}}}`, replacementValue);
         }
         else {
             for (let i = 0; i < content.length; i++) {
                 const element = content[i];
-                if (element && "type" in element && element.type === "text" && typeof element.text === "string") {
-                    if (element.text.includes(replacementKey)) {replacedCount++;}
+                if (element && element.type === "text" && typeof element.text === "string") {
+                    if (element.text.includes(replacementKey)) { replacedCount++; }
                     content[i] = {
                         ...element,
                         text: element.text.replaceAll(`{{${replacementKey}}}`, replacementValue),
@@ -43,17 +119,19 @@ export async function generateCompletion(deps: WorkflowDependencies,
     }
     log(`Replaced ${replacedCount} instances of prompt variables in system prompt and content`);
 
-    let messages: (ChatSystemMessage | ChatUserMessage)[] = [
-        {
-            role: "system",
-            content: systemPrompt,
-        },
-        {
-            role: "user",
-            content: content,
-        }
+    const userMessage: { role: "user"; content: UserContent } = {
+        role: "user",
+        content: content,
+    };
+    const completionInputs = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: content },
     ];
-    setTimeout(async ()=> await recordCompletionInput(messages), 5);
+    setTimeout(async () => await recordCompletionInput(completionInputs), 5);
+
+    const provider = createProvider(modelSettings.provider);
+    const languageModel = provider(modelSettings.model_name);
+    const providerOptions = buildProviderOptions(modelSettings, providerConfig.sdk);
 
     const maxRetries = modelSettings.max_retries;
     const retryDelayMs = modelSettings.retry_delay_ms;
@@ -71,38 +149,36 @@ export async function generateCompletion(deps: WorkflowDependencies,
         }
 
         log(`Sending chat completion request (attempt ${attemptLabel})...`);
-        let startTime = Date.now();
+        const startTime = Date.now();
 
         try {
-            let completion = await deps.openRouter.chat.send({chatRequest: {
-                model: modelSettings.model_name,
-                maxCompletionTokens: modelSettings.max_completion_tokens,
-                messages: messages,
-                stream: false,
-                seed: deps.seed,
+            const result = await generateText({
+                model: languageModel,
+                system: systemPrompt,
+                messages: [userMessage],
+                maxOutputTokens: modelSettings.max_completion_tokens,
+                temperature: modelSettings.temperature,
+                topP: modelSettings.top_p,
                 frequencyPenalty: modelSettings.frequency_penalty,
                 presencePenalty: modelSettings.presence_penalty,
-                temperature: modelSettings.temperature,
-                reasoning: {
-                    effort: modelSettings.reasoning_effort,
-                },
-            }});
+                seed: deps.seed,
+                maxRetries: 0,
+                providerOptions,
+            });
             log(`Completion response received in ${(Date.now() - startTime) / 1000}s (attempt ${attemptLabel})`);
 
-            const text = completion.choices[0]?.message.content?.toString() ?? "";
-
-            if (completion.choices.length < 1 || text.length === 0) {
+            const text = result.text;
+            if (text.length === 0) {
                 warn(`Empty completion on attempt ${attemptLabel}`);
-                console.log(completion);
-                // Retry if attempts remain; otherwise return empty
+                console.log(result);
                 if (attempt < maxRetries) {
                     continue;
                 }
                 warn("Exhausted all retries — returning empty completion");
-                return {text: "", model: completion.model};
+                return { text: "", model: result.response.modelId };
             }
 
-            return {text, model: completion.model};
+            return { text, model: result.response.modelId };
 
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

@@ -13,6 +13,12 @@ const configURLEnvVar = "EPF_CONFIG_URL";
 
 export type Config = z.infer<typeof ConfigSchema>;
 
+export let CONFIG: Config = await readConfig();
+
+export function setConfig(newConfig: Config): void {
+    CONFIG = newConfig;
+}
+
 export async function readConfig() {
     console.log(`Loading config`);
     
@@ -65,5 +71,3 @@ export async function readConfig() {
     console.log(`Config loaded from ${configFilePath}`);
     return parsedConfig.data as Config;
 }
-
-export const CONFIG = await readConfig();

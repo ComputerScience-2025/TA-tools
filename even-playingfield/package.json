@@ -26,7 +26,10 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@openrouter/sdk": "^0.12.79",
+    "@ai-sdk/anthropic": "^3.0.85",
+    "@ai-sdk/google": "^3.0.83",
+    "@ai-sdk/openai": "^3.0.73",
+    "ai": "^6.0.208",
     "chalk": "^5.6.2",
     "smol-toml": "^1.6.1",
     "zod-defaults": "^0.2.3"

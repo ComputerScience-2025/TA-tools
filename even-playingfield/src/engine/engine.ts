@@ -1,10 +1,9 @@
-import { OpenRouter } from "@openrouter/sdk";
-
 import { OutputViewer } from "../util/output-viewer.ts";
 import { executeAnalysisWorkflow } from "../workflow/analysis-workflow.ts";
 import { executeTestingWorkflow } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
-import { readConfig } from "../util/config.ts";
+import { readConfig, setConfig } from "../util/config.ts";
+import { clearProviderCache } from "../util/llm.ts";
 import type { Config } from "../util/config.ts";
 
 export type WorkflowRunResult = {
@@ -36,9 +35,6 @@ export class Engine {
         this.outputViewer = new OutputViewer();
         this.deps = {
             seed: Math.floor(Date.now() / 1000),
-            openRouter: new OpenRouter({
-                apiKey: config.vendors.openrouter.api_key,
-            }),
             outputViewer: this.outputViewer,
         };
     }
@@ -126,12 +122,11 @@ export class Engine {
      */
     async reloadConfig(): Promise<void> {
         const newConfig = await readConfig();
+        setConfig(newConfig);
+        clearProviderCache();
         this.config = newConfig;
         this.deps = {
             seed: Math.floor(Date.now() / 1000),
-            openRouter: new OpenRouter({
-                apiKey: newConfig.vendors.openrouter.api_key,
-            }),
             outputViewer: this.outputViewer,
         };
     }

@@ -3,8 +3,28 @@ mode = "webui"
 api_port = 0
 webui_base_url = "https://ta-tools-dashboard.vercel.app"
 
+[llm.providers.openrouter]
+sdk = "openai"
+endpoint = "https://openrouter.ai/api/v1"
+api_key = ""
+
+[llm.providers.openai]
+sdk = "openai"
+endpoint = ""
+api_key = ""
+
+[llm.providers.anthropic]
+sdk = "anthropic"
+endpoint = ""
+api_key = ""
+
+[llm.providers.google]
+sdk = "google"
+endpoint = ""
+api_key = ""
+
 [llm.models.general_analysis]
-sdk = "openrouter"
+provider = "openrouter"
 model_name = ""
 max_completion_tokens = 20000
 temperature = 0.9
@@ -16,7 +36,7 @@ max_retries = 1
 retry_delay_ms = 1000
 
 [llm.models.output_comparison]
-sdk = "openrouter"
+provider = "openrouter"
 model_name = ""
 max_completion_tokens = 20000
 temperature = 0
@@ -29,9 +49,6 @@ retry_delay_ms = 1000
 
 [llm.prompt_replacement]
 role = "role_placeholder"
-
-[vendors.openrouter]
-api_key = ""
 
 [[analysis_workflows]]
 slug = ""

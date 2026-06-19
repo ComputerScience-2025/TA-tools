@@ -5,28 +5,53 @@ export enum OutputViewingModeEnum {
     WebUI = "webui",
 }
 
+export enum ProviderSDKEnum {
+    OpenAI = "openai",
+    Anthropic = "anthropic",
+    Google = "google",
+}
+
 export const OutputViewingConfigSchema = z.object({
     mode: z.enum(OutputViewingModeEnum).default(OutputViewingModeEnum.WebUI),
     api_port: z.number().min(0).max(65535).default(0), // 0 means random available port
     webui_base_url: z.string().default("https://ta-tools-dashboard.vercel.app"),
 });
 
+export const ProviderConfigSchema = z.object({
+    sdk: z.nativeEnum(ProviderSDKEnum).default(ProviderSDKEnum.OpenAI),
+    endpoint: z.string().default(""),
+    // Intentionally required. We pass this explicitly to the Vercel AI SDK
+    // so it does not fall back to OPENAI_API_KEY / ANTHROPIC_API_KEY / etc.
+    api_key: z.string(),
+});
+
 export const ModelConfigSchema = z.object({
-    sdk: z.enum(["openrouter"]).default("openrouter"),
+    provider: z.string().default("openrouter"),
     model_name: z.string().default(""),
     max_completion_tokens: z.number().min(1).default(20000),
     temperature: z.number().min(0).max(1).default(0.9),
     top_p: z.number().min(0).max(1).default(1),
     frequency_penalty: z.number().min(-2).max(2).default(0),
     presence_penalty: z.number().min(-2).max(2).default(0),
-    reasoning_effort: z.enum(["low", "medium", "high"]).default("high"),
+    reasoning_effort: z.enum(["low", "medium", "high", "xhigh"]).default("high"),
     max_retries: z.number().min(0).default(1),  // 0 for no retry
     retry_delay_ms: z.number().min(0).default(1000),
 });
 
 export const LLMConfigSchema = z.object({
+    providers: z.record(z.string(), ProviderConfigSchema),
     models: z.record(z.string(), ModelConfigSchema),
     prompt_replacement: z.record(z.string(), z.string()),
+}).superRefine((data, ctx) => {
+    for (const [modelName, model] of Object.entries(data.models)) {
+        if (!data.providers[model.provider]) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Model "${modelName}" references unknown provider "${model.provider}"`,
+                path: ["models", modelName, "provider"],
+            });
+        }
+    }
 });
 
 export const FileSearchEntrySchema = z.object({
@@ -84,11 +109,6 @@ export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 export const ConfigSchema = z.object({
     output_viewing: OutputViewingConfigSchema,
     llm: LLMConfigSchema,
-    vendors: z.object({
-        openrouter: z.object({
-            api_key: z.string(),
-        }),
-    }),
     analysis_workflows: z.array(AnalysisWorkflowEntrySchema).default([]),
     testing_workflows: z.array(TestingWorkflowEntrySchema).default([]),
 });

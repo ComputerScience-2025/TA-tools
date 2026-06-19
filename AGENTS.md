@@ -42,7 +42,9 @@ Commands (run in `even-playingfield/`):
 
 Config: TOML, loaded from `--config` CLI arg → `EPF_CONFIG_URL` env var → `epf.toml` in cwd/home. Validated with Zod v4 schemas in `src/util/config-schema.ts`.
 
-Key dependencies: `@openrouter/sdk` (LLM completions), `chalk`, `smol-toml`, `zod-defaults`.
+Key dependencies: `ai` (Vercel AI SDK core), `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `chalk`, `smol-toml`, `zod-defaults`.
+
+LLM providers are configured under `[llm.providers.*]`. Each provider must declare `sdk`, `endpoint`, and `api_key`; the `api_key` is intentionally required and the SDK's env-var fallback is explicitly blocked.
 
 Distribution: Published as npm package `even-pf`. Platform-specific native binaries under `npm/even-pf-{platform}/`. `bin/even-pf.js` is the JS launcher that detects platform and spawns the correct binary.
 

@@ -5,7 +5,12 @@ import {
     ConfigSchema,
     AnalysisWorkflowEntrySchema,
     FileSearchEntrySchema,
-    TestingWorkflowEntrySchema, TestCaseSchema, LLMConfigSchema, ModelConfigSchema
+    TestingWorkflowEntrySchema,
+    TestCaseSchema,
+    LLMConfigSchema,
+    ModelConfigSchema,
+    ProviderConfigSchema,
+    ProviderSDKEnum,
 } from "./util/config-schema.ts";
 
 
@@ -15,9 +20,23 @@ let defaultConfig = getDefaultsForSchema(ConfigSchema);
 
 let defaultLLMConfig = getDefaultsForSchema(LLMConfigSchema);
 defaultLLMConfig.prompt_replacement["role"] = "role_placeholder";
+
+let defaultProviderConfig = getDefaultsForSchema(ProviderConfigSchema);
+defaultLLMConfig.providers["openrouter"] = structuredClone(defaultProviderConfig);
+defaultLLMConfig.providers["openrouter"].sdk = ProviderSDKEnum.OpenAI;
+defaultLLMConfig.providers["openrouter"].endpoint = "https://openrouter.ai/api/v1";
+defaultLLMConfig.providers["openai"] = structuredClone(defaultProviderConfig);
+defaultLLMConfig.providers["openai"].sdk = ProviderSDKEnum.OpenAI;
+defaultLLMConfig.providers["anthropic"] = structuredClone(defaultProviderConfig);
+defaultLLMConfig.providers["anthropic"].sdk = ProviderSDKEnum.Anthropic;
+defaultLLMConfig.providers["google"] = structuredClone(defaultProviderConfig);
+defaultLLMConfig.providers["google"].sdk = ProviderSDKEnum.Google;
+
 let defaultModelConfig = getDefaultsForSchema(ModelConfigSchema);
 defaultLLMConfig.models["general_analysis"] = defaultModelConfig;
+defaultLLMConfig.models["general_analysis"].provider = "openrouter";
 defaultLLMConfig.models["output_comparison"] = structuredClone(defaultModelConfig);
+defaultLLMConfig.models["output_comparison"].provider = "openrouter";
 defaultLLMConfig.models["output_comparison"].temperature = 0;
 defaultConfig.llm = defaultLLMConfig;
 
