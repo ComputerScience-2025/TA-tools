@@ -3,3 +3,6 @@
 
 # data
 import-tools/updated_roster.json
+
+# submodule — proprietary code, never commit submodule changes
+epf-eval/
