@@ -6,7 +6,6 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { CONFIG } from "./config.ts";
 import { ProviderSDKEnum } from "./config-schema.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
-import { recordCompletionInput } from "./eval-harness.ts";
 
 
 type UserContent = string | Array<{ type: "text"; text: string }>;
@@ -123,11 +122,6 @@ export async function generateCompletion(deps: WorkflowDependencies,
         role: "user",
         content: content,
     };
-    const completionInputs = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: content },
-    ];
-    setTimeout(async () => await recordCompletionInput(completionInputs), 5);
 
     const provider = createProvider(modelSettings.provider);
     const languageModel = provider(modelSettings.model_name);

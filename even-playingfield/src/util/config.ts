@@ -3,7 +3,6 @@ import { readFileSync, existsSync } from "node:fs";
 
 import {z} from "zod";
 
-import {ARGS} from "./args.ts";
 import {ConfigSchema} from "./config-schema.ts";
 
 
@@ -13,19 +12,30 @@ const configURLEnvVar = "EPF_CONFIG_URL";
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-export let CONFIG: Config = await readConfig();
+// Set exclusively by the host (cli-host / local-api-host) via setConfig()
+// after readConfig() resolves the config path. Not auto-initialized so that
+// config.ts no longer implicitly depends on CLI args at module-load time.
+export let CONFIG: Config;
+
+// Remembers the resolved config path so that subsequent no-arg calls to
+// readConfig() (e.g. Engine.reloadConfig) reload from the same source.
+let activeConfigPath: string | undefined;
 
 export function setConfig(newConfig: Config): void {
     CONFIG = newConfig;
 }
 
-export async function readConfig() {
+export async function readConfig(configPathOverride?: string) {
     console.log(`Loading config`);
-    
+
     let configFilePath: string;
-    if (ARGS.values.config && ARGS.values.config.trim().length > 0) {
-        configFilePath = ARGS.values.config.trim();
-        console.log(`Found config from command line argument: ${configFilePath}`);
+    if (configPathOverride && configPathOverride.trim().length > 0) {
+        configFilePath = configPathOverride.trim();
+        console.log(`Found config from provided path: ${configFilePath}`);
+    }
+    else if (activeConfigPath) {
+        configFilePath = activeConfigPath;
+        console.log(`Reloading config from previous path: ${configFilePath}`);
     }
     else if (process.env[configURLEnvVar]) {
         configFilePath = process.env[configURLEnvVar]!;
@@ -69,5 +79,6 @@ export async function readConfig() {
         throw new Error("Config file is invalid");
     }
     console.log(`Config loaded from ${configFilePath}`);
+    activeConfigPath = configFilePath;
     return parsedConfig.data as Config;
 }

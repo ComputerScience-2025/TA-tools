@@ -2,8 +2,11 @@
   "name": "even-pf",
   "version": "0.5.2",
   "description": "AI-assisted responsible grading tool for programming assignments",
-  "module": "src/hosts/cli-host.ts",
+  "module": "src/hosts/local-api-host.ts",
   "type": "module",
+  "exports": {
+    ".": "./src/hosts/local-api-host.ts"
+  },
   "license": "UNLICENSED",
   "scripts": {
     "start": "bun run src/hosts/cli-host.ts",
