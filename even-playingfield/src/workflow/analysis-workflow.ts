@@ -5,10 +5,28 @@ import chalk from "chalk";
 import { CONFIG } from "../util/config.ts";
 import { FilePayloadGenerator } from "../util/file-payload.ts";
 import type { WorkflowDependencies } from "./index.ts";
-import { generateCompletion } from "../util/llm.ts";
+import { generateCompletion, type CompletionMetrics } from "../util/llm.ts";
 
 
-export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number, deps: WorkflowDependencies) {
+export type AnalysisWorkflowResult = {
+    slug: string;
+    runNumber: number;
+    status: "succeeded" | "failed";
+    error?: string;
+    latencyMs: number;
+    outputs: { filename: string; content: string }[];
+    completions: CompletionMetrics[];
+};
+
+export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number, deps: WorkflowDependencies): Promise<AnalysisWorkflowResult> {
+    const startTime = Date.now();
+    const resultBase: Omit<AnalysisWorkflowResult, "status" | "error" | "latencyMs"> = {
+        slug: workflow.slug,
+        runNumber: runNum,
+        outputs: [],
+        completions: [],
+    };
+
     console.log(`Executing analysis workflow: ${workflow.slug}`);
     const log = (...args: Parameters<typeof console.log>) => {
         console.log(chalk.cyan(`[${workflow.slug}]`), ...args);
@@ -37,24 +55,50 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
     ).flat();
 
     if (allFiles.length === 0) {
-        warn(`No files found for workflow, skipping...`);
-        return;
-    }
-    log(`Found ${allFiles.length} files for workflow`);
-    const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
-    const completion = await generateCompletion(deps, log, warn, workflow.model, workflow.prompt, fileContentsPayload.map((file) => {
+        const error = "No files found for workflow, skipping...";
+        warn(error);
         return {
-            type: "text",
-            text: file,
-        }
-    }));
+            ...resultBase,
+            status: "failed",
+            error,
+            latencyMs: Date.now() - startTime,
+        };
+    }
 
-    const outputFileName = workflow.output_filename
-        .replaceAll("[seed]", deps.seed.toString())
-        .replaceAll("[slug]", workflow.slug)
-        .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
-        .replaceAll("[run]", runNum.toString());
+    try {
+        log(`Found ${allFiles.length} files for workflow`);
+        const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
+        const completion = await generateCompletion(deps, log, warn, workflow.model, workflow.prompt, fileContentsPayload.map((file) => {
+            return {
+                type: "text",
+                text: file,
+            }
+        }));
 
-    await deps.outputViewer.addFile(outputFileName, { type: "markdown", content: completion.text });
-    log(`Completion saved as ${outputFileName}`);
+        const outputFileName = workflow.output_filename
+            .replaceAll("[seed]", CONFIG.llm.models[workflow.model]!.seed.toString())
+            .replaceAll("[slug]", workflow.slug)
+            .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
+            .replaceAll("[run]", runNum.toString());
+
+        await deps.outputViewer.addFile(outputFileName, { type: "markdown", content: completion.text });
+        log(`Completion saved as ${outputFileName}`);
+
+        return {
+            ...resultBase,
+            status: "succeeded",
+            latencyMs: Date.now() - startTime,
+            outputs: [{ filename: outputFileName, content: completion.text }],
+            completions: [completion.metrics],
+        };
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        warn(`Workflow failed: ${errorMsg}`);
+        return {
+            ...resultBase,
+            status: "failed",
+            error: errorMsg,
+            latencyMs: Date.now() - startTime,
+        };
+    }
 }

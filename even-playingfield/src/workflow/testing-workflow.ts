@@ -4,9 +4,28 @@ import {CONFIG} from "../util/config.ts";
 import chalk from "chalk";
 import {LLMJudgeInputModeEnum} from "../util/config-schema.ts";
 import type {WorkflowDependencies} from "./index.ts";
-import {generateCompletion} from "../util/llm.ts";
+import {generateCompletion, type CompletionMetrics} from "../util/llm.ts";
 
-export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_workflows[number], runNum: number, deps: WorkflowDependencies) {
+export type TestingWorkflowResult = {
+    slug: string;
+    runNumber: number;
+    status: "succeeded" | "failed";
+    error?: string;
+    latencyMs: number;
+    completions: CompletionMetrics[];
+    testCases: { name: string; passed: boolean; explanation?: string }[];
+};
+
+export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_workflows[number], runNum: number, deps: WorkflowDependencies): Promise<TestingWorkflowResult> {
+    const startTime = Date.now();
+    const resultBase: Omit<TestingWorkflowResult, "status" | "error" | "latencyMs" | "testCases"> = {
+        slug: workflow.slug,
+        runNumber: runNum,
+        completions: [],
+    };
+    const completions: CompletionMetrics[] = [];
+    const testCases: { name: string; passed: boolean; explanation?: string }[] = [];
+
     console.log(`Executing testing workflow: ${workflow.slug}`);
     const log = (...args: Parameters<typeof console.log>) => {
         console.log(chalk.cyan(`[${workflow.slug}]`), ...args);
@@ -34,6 +53,7 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
             
             if (testCase.interactive_steps.length > 0) {
                 warn("Interactive steps are not supported in this version. Skipping interactive steps.");
+                testCasesResults[i] = false;
                 continue;
             }
             
@@ -76,6 +96,7 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
                             "expected_output_substring": testCase.single_run_expected_output.substring,
                             "actual_output": commandOutput,
                         }));
+                        completions.push(completion.metrics);
                         const completionText = completion.text;
                         log(`LLM judge completion:\n${completionText}`);
                         const llmJudgeResult = completionText.toLowerCase().includes("pass");  // TODO: More robust parsing
@@ -100,6 +121,7 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
                         break;
                     default:
                         warn(`LLM judge input mode '${testCase.single_run_expected_output.llm_judge_input_mode}' is not supported in this version. Skipping LLM judging.`);
+                        testCasesResults[i] = false;
                         break;
                 }
             }
@@ -113,15 +135,33 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
         await $`${{raw: command}}`.nothrow();
     }
     
+    for (let i = 0; i < workflow.test_cases.length; i++) {
+        const testCase = workflow.test_cases[i]!;
+        testCases.push({
+            name: testCase.name,
+            passed: testCasesResults[i] ?? false,
+            explanation: testCasesResultsExplanation[i],
+        });
+    }
+
     const passedCount = testCasesResults.filter((r) => r).length;
     log(`Testing workflow completed. Passed ${passedCount}/${workflow.test_cases.length} test cases.`);
-    console.table(testCasesResults.map((entry, idx) => {
+    console.table(testCases.map((entry) => {
         return [
-            workflow.test_cases[idx]?.name,
-            entry ? chalk.green("PASS") : chalk.red("FAIL"),
-            testCasesResultsExplanation[idx] || "",
+            entry.name,
+            entry.passed ? chalk.green("PASS") : chalk.red("FAIL"),
+            entry.explanation || "",
         ];
     }));
 
     log(`Finished testing workflow: ${workflow.slug}`);
+
+    const allPassed = testCases.every((tc) => tc.passed);
+    return {
+        ...resultBase,
+        status: allPassed ? "succeeded" : "failed",
+        latencyMs: Date.now() - startTime,
+        completions,
+        testCases,
+    };
 }

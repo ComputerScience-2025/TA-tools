@@ -28,6 +28,7 @@ export const ProviderConfigSchema = z.object({
 export const ModelConfigSchema = z.object({
     provider: z.string().default("openrouter"),
     model_name: z.string().default(""),
+    seed: z.number().default(() => Math.floor(Date.now() / 1000)),
     max_completion_tokens: z.number().min(1).default(20000),
     temperature: z.number().min(0).max(1).default(0.9),
     top_p: z.number().min(0).max(1).default(1),
@@ -111,4 +112,23 @@ export const ConfigSchema = z.object({
     llm: LLMConfigSchema,
     analysis_workflows: z.array(AnalysisWorkflowEntrySchema).default([]),
     testing_workflows: z.array(TestingWorkflowEntrySchema).default([]),
+}).superRefine((data, ctx) => {
+    for (const [index, workflow] of data.analysis_workflows.entries()) {
+        if (!data.llm.models[workflow.model]) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Analysis workflow references unknown model "${workflow.model}"`,
+                path: ["analysis_workflows", index, "model"],
+            });
+        }
+    }
+    for (const [index, workflow] of data.testing_workflows.entries()) {
+        if (!data.llm.models[workflow.model]) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: `Testing workflow references unknown model "${workflow.model}"`,
+                path: ["testing_workflows", index, "model"],
+            });
+        }
+    }
 });

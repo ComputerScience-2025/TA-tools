@@ -12,6 +12,17 @@ type UserContent = string | Array<{ type: "text"; text: string }>;
 
 type Provider = (modelId: string) => LanguageModel;
 
+export type CompletionMetrics = {
+    model: string;
+    provider: string;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    finishReason: string;
+    latencyMs: number;
+    attempts: number;
+};
+
 const providerCache = new Map<string, Provider>();
 
 export function clearProviderCache(): void {
@@ -84,7 +95,7 @@ export async function generateCompletion(deps: WorkflowDependencies,
                                          warn: (..._: any[]) => void,
                                          model: string,
                                          systemPrompt: string,
-                                         content: UserContent) {
+                                         content: UserContent): Promise<{ text: string; model: string; metrics: CompletionMetrics }> {
     const modelSettings = CONFIG.llm.models[model];
     if (!modelSettings) {
         throw new Error(`No model settings found for model "${model}"`);
@@ -155,13 +166,24 @@ export async function generateCompletion(deps: WorkflowDependencies,
                 topP: modelSettings.top_p,
                 frequencyPenalty: modelSettings.frequency_penalty,
                 presencePenalty: modelSettings.presence_penalty,
-                seed: deps.seed,
+                seed: modelSettings.seed,
                 maxRetries: 0,
                 providerOptions,
             });
-            log(`Completion response received in ${(Date.now() - startTime) / 1000}s (attempt ${attemptLabel})`);
+            const latencyMs = Date.now() - startTime;
+            log(`Completion response received in ${latencyMs / 1000}s (attempt ${attemptLabel})`);
 
             const text = result.text;
+            const metrics: CompletionMetrics = {
+                model,
+                provider: modelSettings.provider,
+                promptTokens: result.usage.inputTokens ?? 0,
+                completionTokens: result.usage.outputTokens ?? 0,
+                totalTokens: result.usage.totalTokens ?? 0,
+                finishReason: result.finishReason,
+                latencyMs,
+                attempts: attempt + 1,
+            };
             if (text.length === 0) {
                 warn(`Empty completion on attempt ${attemptLabel}`);
                 console.log(result);
@@ -169,10 +191,10 @@ export async function generateCompletion(deps: WorkflowDependencies,
                     continue;
                 }
                 warn("Exhausted all retries — returning empty completion");
-                return { text: "", model: result.response.modelId };
+                return { text: "", model: result.response.modelId, metrics };
             }
 
-            return { text, model: result.response.modelId };
+            return { text, model: result.response.modelId, metrics };
 
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

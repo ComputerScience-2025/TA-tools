@@ -1,9 +1,9 @@
 import { OutputViewer } from "../util/output-viewer.ts";
-import { executeAnalysisWorkflow } from "../workflow/analysis-workflow.ts";
-import { executeTestingWorkflow } from "../workflow/testing-workflow.ts";
+import { executeAnalysisWorkflow, type AnalysisWorkflowResult } from "../workflow/analysis-workflow.ts";
+import { executeTestingWorkflow, type TestingWorkflowResult } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
 import { readConfig, setConfig } from "../util/config.ts";
-import { clearProviderCache } from "../util/llm.ts";
+import { clearProviderCache, type CompletionMetrics } from "../util/llm.ts";
 import type { Config } from "../util/config.ts";
 
 export type WorkflowRunResult = {
@@ -11,6 +11,10 @@ export type WorkflowRunResult = {
     runNumber: number;
     status: "succeeded" | "failed" | "rejected";
     error?: string;
+    latencyMs?: number;
+    outputs?: { filename: string; content: string }[];
+    completions?: CompletionMetrics[];
+    testCases?: { name: string; passed: boolean; explanation?: string }[];
 };
 
 export type EngineStatus = {
@@ -34,7 +38,6 @@ export class Engine {
         this.config = config;
         this.outputViewer = new OutputViewer();
         this.deps = {
-            seed: Math.floor(Date.now() / 1000),
             outputViewer: this.outputViewer,
         };
     }
@@ -55,7 +58,7 @@ export class Engine {
         console.log(`Starting execution of ${analysisWorkflows.length} analysis + ${testingWorkflows.length} testing workflows...`);
         console.log([...analysisWorkflows, ...testingWorkflows].map((w) => w.slug));
 
-        const runs: { slug: string; runNumber: number; promise: Promise<void> }[] = [];
+        const runs: { slug: string; runNumber: number; promise: Promise<AnalysisWorkflowResult | TestingWorkflowResult> }[] = [];
         const results: WorkflowRunResult[] = [];
 
         // Build run list, rejecting in-flight duplicates
@@ -99,7 +102,17 @@ export class Engine {
             const outcome = settled[i]!;
             completedSlugs.add(run.slug);
             if (outcome.status === "fulfilled") {
-                results.push({ slug: run.slug, runNumber: run.runNumber, status: "succeeded" });
+                const value = outcome.value;
+                results.push({
+                    slug: run.slug,
+                    runNumber: run.runNumber,
+                    status: value.status,
+                    error: value.error,
+                    latencyMs: value.latencyMs,
+                    outputs: "outputs" in value ? value.outputs : undefined,
+                    completions: value.completions,
+                    testCases: "testCases" in value ? value.testCases : undefined,
+                });
             } else {
                 const errorMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
                 console.warn(`Workflow '${run.slug}' run ${run.runNumber} failed:`, outcome.reason);
@@ -126,7 +139,6 @@ export class Engine {
         clearProviderCache();
         this.config = newConfig;
         this.deps = {
-            seed: Math.floor(Date.now() / 1000),
             outputViewer: this.outputViewer,
         };
     }
