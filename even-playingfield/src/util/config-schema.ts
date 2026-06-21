@@ -119,7 +119,22 @@ export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 
 export type TestingWorkflow = z.infer<typeof TestingWorkflowEntrySchema>;
 
+/**
+ * Current config schema version. Increment this whenever the schema changes
+ * in a way that requires migration from the previous version, and register a
+ * matching migration in `config-migrations.ts`.
+ *
+ * Version history:
+ *   4 — last formally published version (commit 42e1e84d). Config files from
+ *       this era carry no `version` field and are detected as v4.
+ *   5 — current. Introduces `[llm.providers.*]`, model `provider` (replacing
+ *       `sdk`), model `seed`, `reasoning_effort = "xhigh"`, and the top-level
+ *       `version` field itself.
+ */
+export const CURRENT_CONFIG_VERSION = 5;
+
 export const ConfigSchema = z.object({
+    version: z.number().int().default(CURRENT_CONFIG_VERSION),
     output_viewing: OutputViewingConfigSchema,
     llm: LLMConfigSchema,
     analysis_workflows: z.array(AnalysisWorkflowEntrySchema).default([]),

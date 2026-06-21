@@ -10,6 +10,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "bun run src/hosts/cli-host.ts",
+    "migrate": "bun run src/hosts/cli-host.ts migrate",
     "build:dev": "bun build src/hosts/cli-host.ts --compile --outfile build/epf",
     "build:all": "bun scripts/build-all.ts",
     "publish:all": "bun scripts/publish-all.ts",

@@ -12,6 +12,7 @@ import {
     ProviderConfigSchema,
     ProviderSDKEnum,
 } from "./util/config-schema.ts";
+import type {ModelConfig} from "./util/config-schema.ts";
 
 
 console.log("generate-config.ts");
@@ -33,6 +34,11 @@ defaultLLMConfig.providers["google"] = structuredClone(defaultProviderConfig);
 defaultLLMConfig.providers["google"].sdk = ProviderSDKEnum.Google;
 
 let defaultModelConfig = getDefaultsForSchema(ModelConfigSchema);
+// `seed` has a per-run timestamp default meant to vary across real runs (so a
+// failed run can be retried with a fresh seed). It must NOT be baked into the
+// example file, or every `config-gen` run would churn the committed TOML. Omit
+// it here; a config that omits `seed` gets a fresh timestamp at load time.
+delete (defaultModelConfig as Partial<ModelConfig>).seed;
 defaultLLMConfig.models["general_analysis"] = defaultModelConfig;
 defaultLLMConfig.models["general_analysis"].provider = "openrouter";
 defaultLLMConfig.models["output_comparison"] = structuredClone(defaultModelConfig);

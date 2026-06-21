@@ -1,3 +1,5 @@
+version = 5
+
 [output_viewing]
 mode = "webui"
 api_port = 0

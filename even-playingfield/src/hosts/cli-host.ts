@@ -11,6 +11,60 @@ import { EPF } from "./local-api-host.ts";
 import type { EPFOptions } from "./local-api-host.ts";
 import { parseAndExecute, COMMAND_NAMES } from "../command-handler.ts";
 import { OutputViewingModeEnum } from "../util/config-schema.ts";
+import { runMigrate } from "./migrate-host.ts";
+
+
+// --- Subcommand dispatch: `even-pf migrate ...` ---
+// Pre-scan the first user positional before the strict arg parse below, which
+// does not know the migrator's flags (--dry-run / --output / --from) and would
+// reject them. When "migrate" is the first user token, hand off to the
+// migrator and exit without starting the engine/REPL.
+//
+// Main-host-only options (--dir/-D, --skip_workflow/-S, --only_workflows) are
+// irrelevant to the migrator and, if left in, would trip `runMigrate`'s own
+// strict `parseArgs` (it only knows -C/-O/--dry-run/--from). Strip them — and
+// their values — before forwarding. Note: the main host uses `-O` for
+// --only_workflows, but inside `migrate` -O means --output, so we strip only
+// the long form --only_workflows and leave -O for the migrator to interpret.
+if (Bun.argv[2] === "migrate") {
+    // Build the arg list for runMigrate from the user tokens only (index 3+).
+    // Do NOT include Bun.argv[0..1] (the bun executable + script path): runMigrate
+    // uses parseArgs with allowPositionals, which would otherwise treat them as
+    // leading positionals and break the bare-positional input form.
+    const migrateArgv: string[] = [];
+    for (let i = 3; i < Bun.argv.length; i++) {
+        const tok = Bun.argv[i]!;
+        // --only_workflows takes a value (next token); drop both.
+        if (tok === "--only_workflows") {
+            // value is the next token unless it looks like a flag
+            if (i + 1 < Bun.argv.length && !Bun.argv[i + 1]!.startsWith("-")) {
+                i++;
+            }
+            continue;
+        }
+        // -S/--skip_workflow take a value; drop both.
+        if (tok === "--skip_workflow" || tok === "-S") {
+            if (i + 1 < Bun.argv.length && !Bun.argv[i + 1]!.startsWith("-")) {
+                i++;
+            }
+            continue;
+        }
+        // -D/--dir take a value; drop both.
+        if (tok === "--dir" || tok === "-D") {
+            if (i + 1 < Bun.argv.length && !Bun.argv[i + 1]!.startsWith("-")) {
+                i++;
+            }
+            continue;
+        }
+        // -D<path> / -S<path> attached-value forms.
+        if (tok.startsWith("-D") || tok.startsWith("-S")) {
+            continue;
+        }
+        migrateArgv.push(tok);
+    }
+    await runMigrate(migrateArgv);
+    process.exit(0);
+}
 
 
 // --- Parse CLI arguments (local to this host; no module-level Bun.argv parse) ---
