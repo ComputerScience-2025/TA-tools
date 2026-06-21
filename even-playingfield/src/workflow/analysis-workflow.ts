@@ -1,4 +1,5 @@
 import { Glob } from "bun";
+import { join } from "node:path";
 
 import chalk from "chalk";
 
@@ -46,7 +47,7 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
                         log(`Excluding file: ${file}`);
                         continue;
                     }
-                    matches.push(file);
+                    matches.push(join(fileSearch.search_directory, file));
                 }
                 log(`Found ${matches.length} files for search: ${fileSearch.file_glob} in ${fileSearch.search_directory}`, matches);
                 return matches;
