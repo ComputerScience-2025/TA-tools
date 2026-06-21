@@ -15,7 +15,6 @@
  *   -C, --config <path|url>   Input config (else resolved via the usual lookup)
  *   -O, --output <path>       Write to this path instead of in-place
  *       --dry-run             Print the migrated TOML; write nothing
- *       --from <n>            Override detected source version (rarely needed)
  *   [positional]              Treated as the input path when -C is absent
  *
  * Output rules (per the chosen defaults):
@@ -43,7 +42,6 @@ export async function runMigrate(argv: string[]): Promise<void> {
             config: { type: "string", short: "C" },
             output: { type: "string", short: "O" },
             "dry-run": { type: "boolean", default: false },
-            from: { type: "string" },
         },
         strict: true,
         allowPositionals: true,
@@ -54,15 +52,7 @@ export async function runMigrate(argv: string[]): Promise<void> {
 
     const { obj } = await loadRawConfig(inputPath);
 
-    let fromOverride: number | undefined;
-    if (args.values.from !== undefined) {
-        fromOverride = Number.parseInt(args.values.from, 10);
-        if (!Number.isInteger(fromOverride) || fromOverride < 1) {
-            console.error(chalk.red(`Invalid --from value: "${args.values.from}" (must be a positive integer)`));
-            process.exit(1);
-        }
-    }
-    const fromVersion = fromOverride ?? detectConfigVersion(obj);
+    const fromVersion = detectConfigVersion(obj);
     console.log(chalk.cyan(`Input:  ${inputPath}`));
     console.log(chalk.cyan(`Source version: ${fromVersion}  (current: ${CURRENT_CONFIG_VERSION})`));
 
@@ -77,7 +67,7 @@ export async function runMigrate(argv: string[]): Promise<void> {
         process.exit(0);
     }
 
-    const migrated = migrateToCurrent(obj, fromOverride);
+    const migrated = migrateToCurrent(obj);
     const finalVersion = detectConfigVersion(migrated);
     console.log(chalk.cyan(`Migrated to version ${finalVersion}.`));
 

@@ -99,13 +99,12 @@ export function detectConfigVersion(obj: RawConfig): number {
 }
 
 /**
- * Apply migrations sequentially from `fromVersion` (or the auto-detected
- * version) up to {@link CURRENT_CONFIG_VERSION}. Throws if a required step
- * is missing. The returned object has `version` hoisted to the front for
- * readable TOML output.
+ * Apply migrations sequentially from the auto-detected version up to
+ * {@link CURRENT_CONFIG_VERSION}. Throws if a required step is missing. The
+ * returned object has `version` hoisted to the front for readable TOML output.
  */
-export function migrateToCurrent(obj: RawConfig, fromOverride?: number): RawConfig {
-    let current = fromOverride ?? detectConfigVersion(obj);
+export function migrateToCurrent(obj: RawConfig): RawConfig {
+    let current = detectConfigVersion(obj);
     let result = obj;
 
     while (current < CURRENT_CONFIG_VERSION) {
