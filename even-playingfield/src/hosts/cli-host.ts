@@ -50,9 +50,10 @@ const options: EPFOptions = {
 
 // --- Build the embeddable EPF core (loads config, creates Engine, starts API server) ---
 const epf = await EPF.create(options);
+const config = epf.engine.getConfig();
 
 // --- WebUI mode: print the frontend URL ---
-if (epf.config.output_viewing.mode === OutputViewingModeEnum.WebUI) {
+if (config.output_viewing.mode === OutputViewingModeEnum.WebUI) {
     console.log(chalk.cyan("Open the following URL to view all outputs:"));
     console.log(epf.getFrontendUrl());
 }
@@ -71,7 +72,7 @@ if (failed > 0) {
 }
 
 // In Local mode, print per-file links after initial run
-if (epf.config.output_viewing.mode === OutputViewingModeEnum.Local) {
+if (config.output_viewing.mode === OutputViewingModeEnum.Local) {
     const files = epf.engine.outputViewer.getFileList();
     if (files.length > 0) {
         console.log("\nClick the following links to view the outputs in your browser:");
@@ -82,7 +83,7 @@ if (epf.config.output_viewing.mode === OutputViewingModeEnum.Local) {
                 params.set("name", file.name);
                 params.set("comp", "gzip");
                 params.set("data", Bun.gzipSync(record.content).toBase64());
-                const url = `${epf.config.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
+                const url = `${config.output_viewing.webui_base_url}/tools/results-viewer#${params.toString()}`;
                 console.log(`${chalk.cyan(file.name)}: ${url}\n`);
             }
         }

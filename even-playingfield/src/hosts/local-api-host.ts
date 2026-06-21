@@ -29,14 +29,12 @@ type ApiServerHandle = { url: string; stop: () => void };
  */
 export class EPF {
     readonly engine: Engine;
-    readonly config: Config;
     private readonly options: EPFOptions;
     private apiServerHandle: ApiServerHandle | null;
     private frontendURL: string;
 
     private constructor(options: EPFOptions, config: Config, resolvedConfigPath?: string) {
         this.options = options;
-        this.config = config;
         this.engine = new Engine(config, resolvedConfigPath);
         this.apiServerHandle = null;
         this.frontendURL = "";
@@ -46,6 +44,9 @@ export class EPF {
      * Async factory: loads config (honoring `options.config`), builds the
      * Engine, and starts the API server when the config requests WebUI
      * output-viewing mode.
+     *
+     * The current config is available via {@link engine.getConfig} and stays
+     * fresh across reloads; this class does not keep its own copy.
      */
     static async create(options: EPFOptions): Promise<EPF> {
         // Change working directory before config resolution so that a relative

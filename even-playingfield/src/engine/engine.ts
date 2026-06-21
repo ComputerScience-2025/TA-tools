@@ -186,6 +186,14 @@ export class Engine {
         };
     }
 
+    /**
+     * Current config snapshot. Always fresh — updated by reloadConfig().
+     * Use this rather than caching a copy, which would go stale on reload.
+     */
+    getConfig(): Config {
+        return this.config;
+    }
+
     /** List all configured workflow slugs grouped by type. */
     listWorkflows(): { analysis: string[]; testing: string[] } {
         return {
