@@ -84,7 +84,7 @@ dataset/v1/<case>/
     └── epf.toml    # per-case EPF config
 ```
 
-Shared code: reuses `../even-playingfield/src/util/llm.ts` (Vercel AI SDK). For now the harness invokes `bun run ../even-playingfield/src/hosts/cli-host.ts`; a later phase adds an in-process `Engine` entry point for richer telemetry.
+Shared code: reuses `../even-playingfield/src/util/llm.ts` (Vercel AI SDK) via its instance-scoped `LlmClient`. Phase 2 added an in-process `EPF`/`Engine` entry point for richer telemetry; Phase 3 harness drives it directly with `EPF.create()` instead of spawning `cli-host.ts`.
 
 Evaluation criteria are stored in TOML files under each case's `eval/` directory and aggregated by the bench harness. The LLM-as-judge uses OpenAI-compatible endpoints only.
 
