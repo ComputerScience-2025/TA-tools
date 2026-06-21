@@ -12,30 +12,31 @@ const configURLEnvVar = "EPF_CONFIG_URL";
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-// Set exclusively by the host (cli-host / local-api-host) via setConfig()
-// after readConfig() resolves the config path. Not auto-initialized so that
-// config.ts no longer implicitly depends on CLI args at module-load time.
-export let CONFIG: Config;
+export type ResolvedConfig = {
+    config: Config;
+    // The path or URL that the config was loaded from, so callers can
+    // reload from the same source on subsequent calls.
+    path: string;
+};
 
-// Remembers the resolved config path so that subsequent no-arg calls to
-// readConfig() (e.g. Engine.reloadConfig) reload from the same source.
-let activeConfigPath: string | undefined;
-
-export function setConfig(newConfig: Config): void {
-    CONFIG = newConfig;
-}
-
-export async function readConfig(configPathOverride?: string) {
+/**
+ * Load and validate the config. Resolution order:
+ *   1. `configPathOverride` (explicit --config / prior resolved path)
+ *   2. `EPF_CONFIG_URL` environment variable
+ *   3. `epf.toml` in the current working directory
+ *   4. `epf.toml` in the user's home directory
+ *
+ * Returns the parsed config together with the path it was loaded from.
+ * Callers that want to reload from the same source should capture the
+ * returned `path` and pass it back in as `configPathOverride`.
+ */
+export async function readConfig(configPathOverride?: string): Promise<ResolvedConfig> {
     console.log(`Loading config`);
 
     let configFilePath: string;
     if (configPathOverride && configPathOverride.trim().length > 0) {
         configFilePath = configPathOverride.trim();
         console.log(`Found config from provided path: ${configFilePath}`);
-    }
-    else if (activeConfigPath) {
-        configFilePath = activeConfigPath;
-        console.log(`Reloading config from previous path: ${configFilePath}`);
     }
     else if (process.env[configURLEnvVar]) {
         configFilePath = process.env[configURLEnvVar]!;
@@ -79,6 +80,5 @@ export async function readConfig(configPathOverride?: string) {
         throw new Error("Config file is invalid");
     }
     console.log(`Config loaded from ${configFilePath}`);
-    activeConfigPath = configFilePath;
-    return parsedConfig.data as Config;
+    return { config: parsedConfig.data as Config, path: configFilePath };
 }

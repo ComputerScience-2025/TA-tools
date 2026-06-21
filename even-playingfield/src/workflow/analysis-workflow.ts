@@ -2,10 +2,10 @@ import { Glob } from "bun";
 
 import chalk from "chalk";
 
-import { CONFIG } from "../util/config.ts";
 import { FilePayloadGenerator } from "../util/file-payload.ts";
 import type { WorkflowDependencies } from "./index.ts";
-import { generateCompletion, type CompletionMetrics } from "../util/llm.ts";
+import type { CompletionMetrics } from "../util/llm.ts";
+import type { AnalysisWorkflow } from "../util/config-schema.ts";
 
 
 export type AnalysisWorkflowResult = {
@@ -18,7 +18,7 @@ export type AnalysisWorkflowResult = {
     completions: CompletionMetrics[];
 };
 
-export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_workflows[number], runNum: number, deps: WorkflowDependencies): Promise<AnalysisWorkflowResult> {
+export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum: number, deps: WorkflowDependencies): Promise<AnalysisWorkflowResult> {
     const startTime = Date.now();
     const resultBase: Omit<AnalysisWorkflowResult, "status" | "error" | "latencyMs"> = {
         slug: workflow.slug,
@@ -68,7 +68,7 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
     try {
         log(`Found ${allFiles.length} files for workflow`);
         const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
-        const completion = await generateCompletion(deps, log, warn, workflow.model, workflow.prompt, fileContentsPayload.map((file) => {
+        const completion = await deps.llmClient.generateCompletion(log, warn, workflow.model, workflow.prompt, fileContentsPayload.map((file) => {
             return {
                 type: "text",
                 text: file,
@@ -76,7 +76,7 @@ export async function executeAnalysisWorkflow(workflow: typeof CONFIG.analysis_w
         }));
 
         const outputFileName = workflow.output_filename
-            .replaceAll("[seed]", CONFIG.llm.models[workflow.model]!.seed.toString())
+            .replaceAll("[seed]", deps.config.llm.models[workflow.model]!.seed.toString())
             .replaceAll("[slug]", workflow.slug)
             .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
             .replaceAll("[run]", runNum.toString());

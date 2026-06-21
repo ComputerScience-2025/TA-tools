@@ -17,13 +17,17 @@ export const OutputViewingConfigSchema = z.object({
     webui_base_url: z.string().default("https://ta-tools-dashboard.vercel.app"),
 });
 
+export type OutputViewingConfig = z.infer<typeof OutputViewingConfigSchema>;
+
 export const ProviderConfigSchema = z.object({
-    sdk: z.nativeEnum(ProviderSDKEnum).default(ProviderSDKEnum.OpenAI),
+    sdk: z.enum(ProviderSDKEnum).default(ProviderSDKEnum.OpenAI),
     endpoint: z.string().default(""),
     // Intentionally required. We pass this explicitly to the Vercel AI SDK
     // so it does not fall back to OPENAI_API_KEY / ANTHROPIC_API_KEY / etc.
     api_key: z.string(),
 });
+
+export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
 export const ModelConfigSchema = z.object({
     provider: z.string().default("openrouter"),
@@ -38,6 +42,8 @@ export const ModelConfigSchema = z.object({
     max_retries: z.number().min(0).default(1),  // 0 for no retry
     retry_delay_ms: z.number().min(0).default(1000),
 });
+
+export type ModelConfig = z.infer<typeof ModelConfigSchema>;
 
 export const LLMConfigSchema = z.object({
     providers: z.record(z.string(), ProviderConfigSchema),
@@ -54,6 +60,8 @@ export const LLMConfigSchema = z.object({
         }
     }
 });
+
+export type LLMConfig = z.infer<typeof LLMConfigSchema>;
 
 export const FileSearchEntrySchema = z.object({
     file_glob: z.string().min(1),
@@ -72,6 +80,8 @@ export const BaseWorkflowEntrySchema = z.object({
 export const AnalysisWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
     prompt: z.string(),
 })
+
+export type AnalysisWorkflow = z.infer<typeof AnalysisWorkflowEntrySchema>;
 
 export enum LLMJudgeInputModeEnum {
     None = "NONE",
@@ -106,6 +116,8 @@ export const TestingWorkflowEntrySchema = BaseWorkflowEntrySchema.extend({
 }).omit({
     input_files_searches: true,
 });
+
+export type TestingWorkflow = z.infer<typeof TestingWorkflowEntrySchema>;
 
 export const ConfigSchema = z.object({
     output_viewing: OutputViewingConfigSchema,

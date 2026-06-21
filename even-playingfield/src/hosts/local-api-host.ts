@@ -1,4 +1,4 @@
-import { readConfig, setConfig } from "../util/config.ts";
+import { readConfig } from "../util/config.ts";
 import type { Config } from "../util/config.ts";
 import { Engine } from "../engine/index.ts";
 import type { WorkflowRunResult } from "../engine/index.ts";
@@ -34,18 +34,18 @@ export class EPF {
     private apiServerHandle: ApiServerHandle | null;
     private frontendURL: string;
 
-    private constructor(options: EPFOptions, config: Config) {
+    private constructor(options: EPFOptions, config: Config, resolvedConfigPath?: string) {
         this.options = options;
         this.config = config;
-        this.engine = new Engine(config);
+        this.engine = new Engine(config, resolvedConfigPath);
         this.apiServerHandle = null;
         this.frontendURL = "";
     }
 
     /**
-     * Async factory: loads config (honoring `options.config`), sets the
-     * global CONFIG, builds the Engine, and starts the API server when the
-     * config requests WebUI output-viewing mode.
+     * Async factory: loads config (honoring `options.config`), builds the
+     * Engine, and starts the API server when the config requests WebUI
+     * output-viewing mode.
      */
     static async create(options: EPFOptions): Promise<EPF> {
         // Change working directory before config resolution so that a relative
@@ -54,10 +54,10 @@ export class EPF {
             process.chdir(options.dir);
         }
 
-        const config = await readConfig(options.config);
-        setConfig(config);
+        const resolved = await readConfig(options.config);
+        const config = resolved.config;
 
-        const epf = new EPF(options, config);
+        const epf = new EPF(options, config, resolved.path);
 
         if (config.output_viewing.mode === OutputViewingModeEnum.WebUI) {
             epf.apiServerHandle = startApiServer(epf.engine, config.output_viewing.api_port);

@@ -1,10 +1,10 @@
 import {$} from "bun";
 
-import {CONFIG} from "../util/config.ts";
 import chalk from "chalk";
 import {LLMJudgeInputModeEnum} from "../util/config-schema.ts";
+import type {TestingWorkflow} from "../util/config-schema.ts";
 import type {WorkflowDependencies} from "./index.ts";
-import {generateCompletion, type CompletionMetrics} from "../util/llm.ts";
+import type {CompletionMetrics} from "../util/llm.ts";
 
 export type TestingWorkflowResult = {
     slug: string;
@@ -16,7 +16,7 @@ export type TestingWorkflowResult = {
     testCases: { name: string; passed: boolean; explanation?: string }[];
 };
 
-export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_workflows[number], runNum: number, deps: WorkflowDependencies): Promise<TestingWorkflowResult> {
+export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: number, deps: WorkflowDependencies): Promise<TestingWorkflowResult> {
     const startTime = Date.now();
     const resultBase: Omit<TestingWorkflowResult, "status" | "error" | "latencyMs" | "testCases"> = {
         slug: workflow.slug,
@@ -92,7 +92,7 @@ export async function executeTestingWorkflow(workflow: typeof CONFIG.testing_wor
                 switch (testCase.single_run_expected_output.llm_judge_input_mode) {
                     case LLMJudgeInputModeEnum.Full:
                         log("Evaluating full output with LLM judge...");
-                        const completion = await generateCompletion(deps, log, warn, workflow.model, testCase.single_run_expected_output.llm_judge_prompt, JSON.stringify({
+                        const completion = await deps.llmClient.generateCompletion(log, warn, workflow.model, testCase.single_run_expected_output.llm_judge_prompt, JSON.stringify({
                             "expected_output_substring": testCase.single_run_expected_output.substring,
                             "actual_output": commandOutput,
                         }));

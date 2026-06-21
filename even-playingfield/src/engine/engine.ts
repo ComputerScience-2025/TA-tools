@@ -2,8 +2,8 @@ import { OutputViewer } from "../util/output-viewer.ts";
 import { executeAnalysisWorkflow, type AnalysisWorkflowResult } from "../workflow/analysis-workflow.ts";
 import { executeTestingWorkflow, type TestingWorkflowResult } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
-import { readConfig, setConfig } from "../util/config.ts";
-import { clearProviderCache, type CompletionMetrics } from "../util/llm.ts";
+import { readConfig } from "../util/config.ts";
+import { LlmClient, type CompletionMetrics } from "../util/llm.ts";
 import type { Config } from "../util/config.ts";
 
 export type WorkflowRunResult = {
@@ -31,14 +31,22 @@ export type EngineStatus = {
 export class Engine {
     readonly outputViewer: OutputViewer;
     private config: Config;
+    private llmClient: LlmClient;
     private deps: WorkflowDependencies;
     private readonly inFlightSlugs: Set<string> = new Set();
+    // Resolved config path/URL from the initial load, so reloadConfig() can
+    // re-read from the same source without the host re-supplying it.
+    private resolvedConfigPath: string | undefined;
 
-    constructor(config: Config) {
+    constructor(config: Config, resolvedConfigPath?: string) {
         this.config = config;
+        this.resolvedConfigPath = resolvedConfigPath;
         this.outputViewer = new OutputViewer();
+        this.llmClient = new LlmClient(config.llm);
         this.deps = {
             outputViewer: this.outputViewer,
+            config: this.config,
+            llmClient: this.llmClient,
         };
     }
 
@@ -134,12 +142,15 @@ export class Engine {
      * Does not affect output_viewing settings or in-flight workflows.
      */
     async reloadConfig(): Promise<void> {
-        const newConfig = await readConfig();
-        setConfig(newConfig);
-        clearProviderCache();
-        this.config = newConfig;
+        const resolved = await readConfig(this.resolvedConfigPath);
+        this.config = resolved.config;
+        this.resolvedConfigPath = resolved.path;
+        // Rebuild the LlmClient so its provider cache resets to the new keys.
+        this.llmClient = new LlmClient(this.config.llm);
         this.deps = {
             outputViewer: this.outputViewer,
+            config: this.config,
+            llmClient: this.llmClient,
         };
     }
 
