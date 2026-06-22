@@ -28,11 +28,11 @@ import { parseArgs } from "node:util";
 import { writeFileSync, copyFileSync } from "node:fs";
 
 import chalk from "chalk";
-import { stringify } from "smol-toml";
 
 import { ConfigSchema, CURRENT_CONFIG_VERSION } from "../util/config-schema.ts";
 import { resolveConfigPath, loadRawConfig } from "../util/config.ts";
 import { detectConfigVersion, migrateToCurrent } from "../util/config-migrations.ts";
+import { stringifyToml } from "../util/toml-stringify.ts";
 
 
 export async function runMigrate(argv: string[]): Promise<void> {
@@ -84,7 +84,7 @@ export async function runMigrate(argv: string[]): Promise<void> {
     // that omits `seed` should get a fresh timestamp on each *run*, not one
     // captured at migration time. safeParse above is a correctness gate only;
     // we emit exactly the source fields plus the migration transforms.
-    const tomlString = stringify(migrated);
+    const tomlString = stringifyToml(migrated);
 
     if (args.values["dry-run"]) {
         console.log(chalk.gray("--- dry-run: no file written ---"));
