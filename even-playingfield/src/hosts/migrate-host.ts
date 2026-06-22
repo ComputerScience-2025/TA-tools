@@ -26,6 +26,7 @@
 
 import { parseArgs } from "node:util";
 import { writeFileSync, copyFileSync } from "node:fs";
+import { parse, join } from "node:path";
 
 import chalk from "chalk";
 
@@ -104,8 +105,9 @@ export async function runMigrate(argv: string[]): Promise<void> {
         process.exit(1);
     }
 
-    // In-place write with a backup of the original.
-    const backupPath = `${inputPath}.bak`;
+    // In-place write with a backup of the original, tagged with its source version.
+    const parsedPath = parse(inputPath);
+    const backupPath = join(parsedPath.dir, `${parsedPath.name}.bak-v${fromVersion}${parsedPath.ext}`);
     copyFileSync(inputPath, backupPath);
     writeFileSync(inputPath, tomlString);
     console.log(chalk.green(`Migrated config written to ${inputPath} (backup at ${backupPath}).`));
