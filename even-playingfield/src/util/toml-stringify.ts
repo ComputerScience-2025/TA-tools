@@ -40,7 +40,7 @@ import { stringify as smolStringify } from "smol-toml";
  * a newline.
  */
 function escapeMultilineBody(s: string): string {
-    return s
+    let result = s
         .replace(/\\/g, "\\\\")          // backslash must be escaped first
         .replace(/"""/g, '""\\"')        // escape triple-quote to avoid early close
         .replace(/\r/g, "\\r")           // CR cannot appear literally
@@ -50,6 +50,25 @@ function escapeMultilineBody(s: string): string {
             return "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0");
         });
     // \t and \n are left literal — both are valid in multi-line basic strings.
+
+    // Escape any trailing " that would merge with the closing """ delimiter.
+    // A trailing " is unescaped iff preceded by an even number of backslashes.
+    // Escape each unescaped trailing " one at a time until we hit an
+    // already-escaped one. Without this, e.g. `Hello\nWorld"` would emit
+    // `"""Hello\nWorld""""`, and the parser would close at the first `"""`,
+    // leaving the stray `"` as garbage.
+    while (result.endsWith('"')) {
+        let backslashes = 0;
+        let i = result.length - 2;
+        while (i >= 0 && result[i] === "\\") { backslashes++; i--; }
+        if (backslashes % 2 === 0) {
+            result = result.slice(0, -1) + '\\"';
+        } else {
+            break;  // already escaped — safe
+        }
+    }
+
+    return result;
 }
 
 // Bare keys: A-Za-z0-9_-  (TOML also allows Unicode bare keys, but smol-toml
