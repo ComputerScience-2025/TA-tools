@@ -88,6 +88,8 @@ Shared code: reuses `../even-playingfield/src/util/llm.ts` (Vercel AI SDK) via i
 
 Evaluation criteria are stored in TOML files under each case's `eval/` directory and aggregated by the bench harness. The LLM-as-judge uses OpenAI-compatible endpoints only.
 
+Note: since it is a git submodule, need to check for uncommitted changes separately for reviewing.
+
 ---
 
 ## Toolchain notes
