@@ -27,6 +27,10 @@
         return prev;
     }, 0));
 
+    let lmsComment: string = $derived(
+        `See https://github.com/${owner}/${repo}/pull/${pull_number}/changes for detailed explanations about points deduction and suggestions. Let us know if you have any trouble accessing them.`
+    );
+
     $effect(() => {
         let prLink = page.url.searchParams.get("pr_link");  // TODO: not hardcode the param name
         if (prLink) {
@@ -71,6 +75,15 @@
             comment.score = scores.reduce((acc, score) => acc + parseFloat(score), 0);
         }
 
+    }
+
+    async function copyLmsCommentButton() {
+        try {
+            await navigator.clipboard.writeText(lmsComment);
+            toast.push("Comment copied to clipboard.");
+        } catch (e) {
+            toast.push("Failed to copy comment." + (e instanceof Error ? ` ${e.message}` : ""));
+        }
     }
 </script>
 
@@ -128,7 +141,10 @@
             selectRows={true}
             bind:selectedRowsIndex={selectedCommentsIndexForTabulation}
     />
-    <p><b>Total Score: {score}</b></p>
+    <p>
+        <b>Total Score: {score}</b>
+        <button class="button" onclick={copyLmsCommentButton} disabled={!pull_number}>Copy Comment for LMS</button>
+    </p>
 </section>
 
 <hr>
