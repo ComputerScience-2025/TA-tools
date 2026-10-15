@@ -10,6 +10,21 @@
 
     import {GitHubWrapper} from "$lib/github";
     import type {GitHubPullRequestReviewCommentEntry, GitHubPullRequestReviewEntry} from "$lib/github";
+    import {GITHUB_PAT} from "$lib/stores";
+
+    const ERROR_TOAST_THEME = {
+        "--toastBackground": "hsl(348, 86%, 43%)",
+        "--toastColor": "#ffffff",
+        "--toastBarBackground": "hsl(348, 86%, 30%)",
+    };
+
+    function describeError(e: unknown): string {
+        if (!(e instanceof Error)) {
+            return String(e);
+        }
+        const status = (e as Error & {status?: number}).status;
+        return status === undefined ? e.message : `HTTP ${status}: ${e.message}`;
+    }
 
     let pullRequestLink = $state("");
     let pullRequestReviews: GitHubPullRequestReviewEntry[] = $state([]);
@@ -38,24 +53,39 @@
         }
     });
 
-    function analyzePullRequestLink(){
+    function analyzePullRequestLink(): boolean {
         try {
-            let resp  = GitHubWrapper.analyzePullRequestLink(pullRequestLink);
+            let resp = GitHubWrapper.analyzePullRequestLink(pullRequestLink);
             owner = resp.owner;
             repo = resp.repo;
             pull_number = resp.pull_number;
+            return true;
         } catch (e) {
-            toast.push("Failed to analyze Pull Request link." + (e instanceof Error ? ` ${e.message}` : ""));
+            toast.push(`Failed to analyze Pull Request link. ${describeError(e)}`, {theme: ERROR_TOAST_THEME});
+            return false;
         }
     }
 
     async function getReviewsButton() {
-        analyzePullRequestLink();
-        pullRequestReviews = await GitHubWrapper.listReviews(owner, repo, pull_number);
+        if (!analyzePullRequestLink()) {
+            return;
+        }
+
+        try {
+            pullRequestReviews = await GitHubWrapper.listReviews(owner, repo, pull_number);
+        } catch (e) {
+            toast.push(`Failed to get reviews. ${describeError(e)}`, {theme: ERROR_TOAST_THEME});
+        }
     }
 
-    async function getReviewCommentsButton(comment_id: number){
-        pullRequestReviewComments = await GitHubWrapper.listCommentsForReview(owner, repo, pull_number, comment_id);
+    async function getReviewCommentsButton(comment_id: number) {
+        try {
+            pullRequestReviewComments = await GitHubWrapper.listCommentsForReview(owner, repo, pull_number, comment_id);
+        } catch (e) {
+            toast.push(`Failed to get review comments. ${describeError(e)}`, {theme: ERROR_TOAST_THEME});
+            return;
+        }
+
         selectedCommentsIndexForTabulation = [];
         calculateIndividualScores();
     }
@@ -88,6 +118,18 @@
 </script>
 
 <h1 class="title">Comments Score Calculator</h1>
+
+{#if !$GITHUB_PAT}
+    <article class="message is-warning">
+        <div class="message-header">
+            <p>GitHub token is not configured</p>
+        </div>
+        <div class="message-body">
+            Reading reviews and comments requires a GitHub Personal Access Token.
+            Add one on the <a href="/settings">Settings</a> page, then reload this page.
+        </div>
+    </article>
+{/if}
 
 <hr>
 
