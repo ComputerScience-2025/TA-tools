@@ -1,6 +1,6 @@
 {
   "name": "even-pf",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "AI-assisted responsible grading tool for programming assignments",
   "module": "src/hosts/local-api-host.ts",
   "type": "module",
@@ -11,6 +11,7 @@
   "scripts": {
     "start": "bun run src/hosts/cli-host.ts",
     "migrate": "bun run src/hosts/cli-host.ts migrate",
+    "download": "bun run src/hosts/cli-host.ts download",
     "build:dev": "bun build src/hosts/cli-host.ts --compile --outfile build/epf",
     "build:all": "bun scripts/build-all.ts",
     "publish:all": "bun scripts/publish-all.ts",
@@ -35,15 +36,15 @@
     "@ai-sdk/openai": "^3.0.73",
     "ai": "^6.0.208",
     "chalk": "^5.6.2",
-    "smol-toml": "^1.6.1",
+    "smol-toml": "^1.9.0",
     "zod-defaults": "^0.2.3"
   },
   "optionalDependencies": {
-    "even-pf-linux-x64": "0.5.2",
-    "even-pf-linux-arm64": "0.5.2",
-    "even-pf-windows-x64": "0.5.2",
-    "even-pf-darwin-x64": "0.5.2",
-    "even-pf-darwin-arm64": "0.5.2"
+    "even-pf-linux-x64": "0.6.0",
+    "even-pf-linux-arm64": "0.6.0",
+    "even-pf-windows-x64": "0.6.0",
+    "even-pf-darwin-x64": "0.6.0",
+    "even-pf-darwin-arm64": "0.6.0"
   },
   "files": [
     "bin/even-pf.js",

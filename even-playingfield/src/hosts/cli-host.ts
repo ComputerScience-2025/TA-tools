@@ -12,6 +12,7 @@ import type { EPFOptions } from "./local-api-host.ts";
 import { parseAndExecute, COMMAND_NAMES } from "../command-handler.ts";
 import { OutputViewingModeEnum } from "../util/config-schema.ts";
 import { runMigrate } from "./migrate-host.ts";
+import { runDownload } from "./download-host.ts";
 
 
 // --- Subcommand dispatch: `even-pf migrate ...` ---
@@ -24,6 +25,16 @@ if (Bun.argv[2] === "migrate") {
     // parseArgs for -C/-O/--dry-run/--from + positionals. Unknown flags
     // (e.g. main-host --dir) get a clear "unknown option" error there.
     await runMigrate(Bun.argv.slice(3));
+    process.exit(0);
+}
+
+
+// --- Subcommand dispatch: `even-pf download ...` ---
+// Same pre-scan pattern as `migrate`. The downloader is independent of the
+// engine/config and has its own flags (--output / --skip-existing / etc.), so
+// hand off before the strict arg parse below and exit.
+if (Bun.argv[2] === "download") {
+    await runDownload(Bun.argv.slice(3));
     process.exit(0);
 }
 

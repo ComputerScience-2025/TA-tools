@@ -13,6 +13,30 @@ If not specified, it will first try to get `EPF_CONFIG_URL` environment variable
 
 If you're using the tool in a resource-constrained environment, you can use platform-specific executables like [even-pf-linux-x64](https://www.npmjs.com/package/even-pf-linux-x64).
 
+### Downloading files
+The downloader is a separate subcommand (independent of `epf.toml`) that pulls files from a remote source into a local directory. It uses a plugin system, so additional remotes can be added over time.
+
+```bash
+even-pf download github https://github.com/user/repo/tree/branch_name/dir_name
+```
+
+Both `/tree/` (directory, downloaded recursively) and `/blob/` (single file) URLs are supported. Files land in the output directory with the requested directory prefix stripped.
+
+Flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --output <dir>` | `.` | Directory to write into |
+| `--skip-existing` | off (overwrite) | Skip files that already exist |
+| `--concurrency <n>` | `5` | Max parallel file downloads |
+| `--dry-run` | off | List files without writing anything |
+| `--token <value>` | — | Override the remote's token env var |
+
+Credentials are read from environment variables, not `epf.toml`:
+
+- `EPF_DOWNLOAD_GITHUB_PAT` — GitHub personal access token. Optional; required for private repositories.
+
+
 ## Development
 To install dependencies:
 ```bash

@@ -10,18 +10,18 @@
         "@ai-sdk/openai": "^3.0.73",
         "ai": "^6.0.208",
         "chalk": "^5.6.2",
-        "smol-toml": "^1.6.1",
+        "smol-toml": "1.9.0",
         "zod-defaults": "^0.2.3",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
       },
       "optionalDependencies": {
-        "even-pf-darwin-arm64": "0.5.2",
-        "even-pf-darwin-x64": "0.5.2",
-        "even-pf-linux-arm64": "0.5.2",
-        "even-pf-linux-x64": "0.5.2",
-        "even-pf-windows-x64": "0.5.2",
+        "even-pf-darwin-arm64": "0.6.0",
+        "even-pf-darwin-x64": "0.6.0",
+        "even-pf-linux-arm64": "0.6.0",
+        "even-pf-linux-x64": "0.6.0",
+        "even-pf-windows-x64": "0.6.0",
       },
       "peerDependencies": {
         "typescript": "^6.0.3",
@@ -57,21 +57,11 @@
 
     "chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
-    "even-pf-darwin-arm64": ["even-pf-darwin-arm64@0.5.2", "", { "os": "darwin", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-ZIKr9vq1O4T1VcoO0UscaSqJRJWchb+4khiPyzwlJ4H+xMA3qlX6Jrw6hLGmmVdFfREz/5lfju1U8mzedgyc4w=="],
-
-    "even-pf-darwin-x64": ["even-pf-darwin-x64@0.5.2", "", { "os": "darwin", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-+TuyS9D7aEPKg1Ga9vKUCRcMY7sQE/++h9A/1MjqNuESyLk6LzavgWnqcsfHlOd+9ROOqCnG+JL9HfpnsssZ9w=="],
-
-    "even-pf-linux-arm64": ["even-pf-linux-arm64@0.5.2", "", { "os": "linux", "cpu": "arm64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-1cbZaj4jpqfMkQbbVebPIwruqKnDQ6amJrlYQ/9cS8tksR3YXVo2auWqusRxxjfTi09JO+YiSP536KrrxGH+Kg=="],
-
-    "even-pf-linux-x64": ["even-pf-linux-x64@0.5.2", "", { "os": "linux", "cpu": "x64", "bin": { "even-pf": "bin/even-pf" } }, "sha512-xCVG6v/qUnQRW6l5WQ7tgQKrmxF6p1q9gE6g8STfgAOQfCdd7lBUrTHBBMMa9uiojJtslM3ItgAr0Kxxl6+5wQ=="],
-
-    "even-pf-windows-x64": ["even-pf-windows-x64@0.5.2", "", { "os": "win32", "cpu": "x64", "bin": { "even-pf": "bin/even-pf.exe" } }, "sha512-zF+HJKL5nf3RIxkm+7EOIMcavRqv3HVCNMQp1gWH+4AZOwxSQ2K3DcfDiTKrzR/gypoz/elzkUxbfAVNNQdNFA=="],
-
     "eventsource-parser": ["eventsource-parser@3.1.0", "", {}, "sha512-kJezFj9YFAMLeORyi7aCLxLbD5/qWMQnoMVlVPyHIll7lgRJCc3JVln9Vgl9nwQi0YkMnhdGTMNn7CkRRAptMg=="],
 
     "json-schema": ["json-schema@0.4.0", "", {}, "sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA=="],
 
-    "smol-toml": ["smol-toml@1.6.1", "", {}, "sha512-dWUG8F5sIIARXih1DTaQAX4SsiTXhInKf1buxdY9DIg4ZYPZK5nGM1VRIYmEbDbsHt7USo99xSLFu5Q1IqTmsg=="],
+    "smol-toml": ["smol-toml@1.9.0", "", {}, "sha512-hpd+HLON7HdZXqYchMM/+LaTTbdK0AU3NngIJ4KVyWbY9bfQqdL9cD+4yf6dUoU2Ap4VsU0JkQi6FxAI1B2mXQ=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
