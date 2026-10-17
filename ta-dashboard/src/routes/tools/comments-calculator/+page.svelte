@@ -42,12 +42,10 @@
         return prev;
     }, 0));
 
-    let lmsComment: string = $derived(
-        `See https://github.com/${owner}/${repo}/pull/${pull_number}/changes for detailed explanations about points deduction and suggestions. Let us know if you have any trouble accessing them.`
-    );
+    let reconstructedPullRequestFilesTabURL: string = $derived(`https://github.com/${owner}/${repo}/pull/${pull_number}/changes`);
 
     $effect(() => {
-        let prLink = page.url.searchParams.get("pr_link");  // TODO: not hardcode the param name
+        let prLink = page.url.searchParams.get("pr_link");  // TODO: not hardcode the param name, use constant/enum to synchronize with other pages
         if (prLink) {
             pullRequestLink = prLink;
         }
@@ -108,11 +106,19 @@
     }
 
     async function copyLmsCommentButton() {
+        const lmsCommentHtml = `See <a href="${reconstructedPullRequestFilesTabURL}">${reconstructedPullRequestFilesTabURL}</a> for detailed explanations about points deduction and suggestions. Let us know if you have any trouble accessing them.`;
+        const lmsCommentPlainText = `See ${reconstructedPullRequestFilesTabURL} for detailed explanations about points deduction and suggestions. Let us know if you have any trouble accessing them.`;
+
         try {
-            await navigator.clipboard.writeText(lmsComment);
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    "text/html": new Blob([lmsCommentHtml], {type: "text/html"}),
+                    "text/plain": new Blob([lmsCommentPlainText], {type: "text/plain"}),
+                }),
+            ]);
             toast.push("Comment copied to clipboard.");
         } catch (e) {
-            toast.push("Failed to copy comment." + (e instanceof Error ? ` ${e.message}` : ""));
+            toast.push(`Failed to copy comment. ${describeError(e)}`, {theme: ERROR_TOAST_THEME});
         }
     }
 </script>
