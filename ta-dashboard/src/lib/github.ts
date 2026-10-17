@@ -13,14 +13,41 @@ export const GitHubWrapper = {
     analyzePullRequestLink: (url: string) => {
         let urlObj = new URL(url);
         let pathParts = urlObj.pathname.split("/").filter(part => part.length > 0);
-        if (pathParts.length < 4 || pathParts[2] !== "pull") {
-            throw new Error("Invalid pull request URL");
+        let idx: {
+            ownerIdx: number,
+            repoIdx: number,
+            pullRequestIdx: number,
+        };
+        switch (urlObj.hostname) {
+            case "github.com":
+                if (pathParts.length < 4 || pathParts[2] !== "pull") {
+                    throw new Error("Invalid pull request URL: not a Pull Request");
+                }
+                idx = {
+                    ownerIdx: 0,
+                    repoIdx: 1,
+                    pullRequestIdx: 3,
+                };
+                break;
+            case "vscode.dev":
+                if (pathParts.length < 5 || pathParts[0] !== "github" || pathParts[3] !== "pull") {
+                    throw new Error("Invalid pull request URL: not a Pull Request");
+                }
+                idx = {
+                    ownerIdx: 1,
+                    repoIdx: 2,
+                    pullRequestIdx: 4,
+                };
+                break;
+            default:
+                throw new Error("Invalid pull request URL: unsupported hostname");
         }
-        let owner = pathParts[0];
-        let repo = pathParts[1];
-        let pull_number = parseInt(pathParts[3]);
+        
+        let owner = pathParts[idx.ownerIdx];
+        let repo = pathParts[idx.repoIdx];
+        let pull_number = parseInt(pathParts[idx.pullRequestIdx]);
         if (isNaN(pull_number)) {
-            throw new Error("Invalid pull request number");
+            throw new Error("Invalid pull request number (unable to parse as an integer)");
         }
         return {owner, repo, pull_number};
     },
