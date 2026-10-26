@@ -25,6 +25,10 @@ export const ProviderConfigSchema = z.object({
     // Intentionally required. We pass this explicitly to the Vercel AI SDK
     // so it does not fall back to OPENAI_API_KEY / ANTHROPIC_API_KEY / etc.
     api_key: z.string(),
+    // Extra request headers, merged into every call to this provider. Needed by
+    // browser targets: Anthropic refuses cross-origin requests without
+    // "anthropic-dangerous-direct-browser-access: true".
+    headers: z.record(z.string(), z.string()).default({}),
 });
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
@@ -132,6 +136,8 @@ export type TestingWorkflow = z.infer<typeof TestingWorkflowEntrySchema>;
  *       `version` field itself.
  */
 export const CURRENT_CONFIG_VERSION = 5;
+
+export type Config = z.infer<typeof ConfigSchema>;
 
 export const ConfigSchema = z.object({
     version: z.number().int().default(CURRENT_CONFIG_VERSION),

@@ -1,3 +1,5 @@
+import type { VirtualFileSystem } from "../platform/types.ts";
+
 /**
  * Helper class for generating file content payloads with language-specific formatting
  */
@@ -61,27 +63,27 @@ export class FilePayloadGenerator {
 
     /**
      * Generate payloads for multiple files
-     * @param files Array of file paths
+     * @param files Array of file paths, resolved against the filesystem root
+     * @param fs Filesystem to read from
      * @returns Array of formatted file content strings
      */
-    static async generatePayloads(files: string[]): Promise<string[]> {
+    static async generatePayloads(files: string[], fs: VirtualFileSystem): Promise<string[]> {
         const payloads: string[] = [];
-        
+
         for (const file of files) {
-            const content = await Bun.file(file).text();
+            const content = await fs.readText(file);
             payloads.push(this.formatFileContent(file, content));
         }
-        
+
         return payloads;
     }
 
     /**
      * Add a custom language mapping
-     * @param extension The file extension (including the dot, e.g., '.custom')
+     * @param extension The file extension (including the dot, e.g. '.custom')
      * @param language The language identifier to use
      */
     static addLanguageMapping(extension: string, language: string): void {
         this.LANGUAGE_MAP[extension.toLowerCase()] = language;
     }
 }
-

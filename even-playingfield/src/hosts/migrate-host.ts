@@ -31,9 +31,10 @@ import { parse, join } from "node:path";
 import chalk from "chalk";
 
 import { ConfigSchema, CURRENT_CONFIG_VERSION } from "../util/config-schema.ts";
-import { resolveConfigPath, loadRawConfig } from "../util/config.ts";
+import { configSourceLabel, loadRawConfig, resolveConfigSource } from "../util/config-loader.ts";
 import { detectConfigVersion, migrateToCurrent } from "../util/config-migrations.ts";
 import { stringifyToml } from "../util/toml-stringify.ts";
+import { createBunPlatform } from "../platform/bun/bun-platform.ts";
 
 
 export async function runMigrate(argv: string[]): Promise<void> {
@@ -48,10 +49,12 @@ export async function runMigrate(argv: string[]): Promise<void> {
         allowPositionals: true,
     });
 
-    const inputPath = resolveConfigPath(args.values.config ?? args.positionals[0]);
-    const isUrl = /^https?:\/\//.test(inputPath);
+    const platform = createBunPlatform();
+    const source = await resolveConfigSource(platform, args.values.config ?? args.positionals[0]);
+    const inputPath = configSourceLabel(source);
+    const isUrl = source.kind === "url";
 
-    const { obj } = await loadRawConfig(inputPath);
+    const { obj } = await loadRawConfig(platform, source);
 
     const fromVersion = detectConfigVersion(obj);
     console.log(chalk.cyan(`Input:  ${inputPath}`));

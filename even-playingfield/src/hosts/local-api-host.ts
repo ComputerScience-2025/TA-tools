@@ -1,9 +1,11 @@
-import { readConfig } from "../util/config.ts";
-import type { Config } from "../util/config.ts";
+import { createBunPlatform } from "../platform/bun/bun-platform.ts";
+import { loadConfig } from "../util/config-loader.ts";
 import { Engine } from "../engine/index.ts";
-import type { WorkflowRunResult } from "../engine/index.ts";
 import { startApiServer } from "../api-server.ts";
 import { OutputViewingModeEnum } from "../util/config-schema.ts";
+import type { Config, ConfigSource } from "../util/config-loader.ts";
+import type { Platform } from "../platform/types.ts";
+import type { WorkflowRunResult } from "../engine/index.ts";
 
 
 /**
@@ -33,9 +35,9 @@ export class EPF {
     private apiServerHandle: ApiServerHandle | null;
     private frontendURL: string;
 
-    private constructor(options: EPFOptions, config: Config, resolvedConfigPath?: string) {
+    private constructor(options: EPFOptions, config: Config, platform: Platform, configSource?: ConfigSource) {
         this.options = options;
-        this.engine = new Engine(config, resolvedConfigPath);
+        this.engine = new Engine(config, platform, configSource);
         this.apiServerHandle = null;
         this.frontendURL = "";
     }
@@ -55,10 +57,11 @@ export class EPF {
             process.chdir(options.dir);
         }
 
-        const resolved = await readConfig(options.config);
+        const platform = createBunPlatform();
+        const resolved = await loadConfig(platform, options.config);
         const config = resolved.config;
 
-        const epf = new EPF(options, config, resolved.path);
+        const epf = new EPF(options, config, platform, resolved.source);
 
         if (config.output_viewing.mode === OutputViewingModeEnum.WebUI) {
             epf.apiServerHandle = startApiServer(epf.engine, config.output_viewing.api_port);

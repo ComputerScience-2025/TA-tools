@@ -5,425 +5,96 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
-	import { marked, preprocessMarkdown } from "$lib/marked-config";
-	import { darkMode, enableMultilineTableCode, escapePipesInTableCode } from "$lib/stores";
+	import FileBrowser from "$lib/components/FileBrowser.svelte";
+	import { epfSession } from "$lib/epf/session";
+	import {
+		createHashFileSource,
+		createHttpApiFileSource,
+		createVfsFileSource,
+		parseHashFileParams
+	} from "$lib/results/file-sources";
 
-	type FileEntry = { name: string; type: "markdown" | "text"; modification_time: string };
-	type LoadState = "idle" | "loading" | "ready" | "error";
+	import type { ResultFileSource } from "$lib/results/file-sources";
 
-	let apiBase = $state("");
-	let fileList = $state<FileEntry[]>([]);
-	let selectedName = $state("");
-	let selectedType = $state<"markdown" | "text">("markdown");
-	let fileContent = $state("");
-	let renderedHtml = $state("");
-	let fileLoadState = $state<LoadState>("idle");
-	let listLoadState = $state<LoadState>("idle");
-	let listErrorMessage = $state("");
-	let fileErrorMessage = $state("");
-	let isFetching = $state(false);
-	let isHashSource = $state(false);
-	let selectedModificationTime = $derived(
-		fileList.find((f) => f.name === selectedName)?.modification_time ?? ""
-	);
+	type SourceState =
+		| { kind: "loading" }
+		| { kind: "idle" }
+		| { kind: "ready"; source: ResultFileSource }
+		| { kind: "error"; message: string };
 
-	$effect(() => {
-		const content = fileContent;
-		const type = selectedType;
-		const enabled = $enableMultilineTableCode;
-		const escapePipes = $escapePipesInTableCode;
-		let active = true;
+	let sourceState = $state<SourceState>({ kind: "loading" });
+	// Bumped whenever the source changes so the browser component remounts.
+	let sourceVersion = $state(0);
 
-		if (type === "markdown" && content) {
-			const parseMarkdown = async () => {
-				try {
-					const html = await marked.parse(preprocessMarkdown(content));
-					if (active) {
-						renderedHtml = html;
-					}
-				} catch (err) {
-					console.error(err);
-					if (active) {
-						renderedHtml = "";
-					}
-				}
-			};
-			void parseMarkdown();
-		} else {
-			renderedHtml = "";
+	const resolveSource = async (): Promise<void> => {
+		const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+		if (rawHash.trim().length === 0) {
+			sourceState = { kind: "idle" };
+			return;
 		}
 
-		return () => {
-			active = false;
-		};
-	});
-
-	// --- Base64 / gzip helpers ---
-
-	const normalizeBase64 = (input: string): string => {
-		const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
-		const padding = normalized.length % 4;
-		return padding === 0 ? normalized : normalized + "=".repeat(4 - padding);
-	};
-
-	const base64ToBytes = (input: string): Uint8Array => {
-		const normalized = normalizeBase64(input);
-		const binary = atob(normalized);
-		const bytes = new Uint8Array(binary.length);
-		for (let i = 0; i < binary.length; i += 1) {
-			bytes[i] = binary.charCodeAt(i);
-		}
-		return bytes;
-	};
-
-	const decompressIfNeeded = async (bytes: Uint8Array, compValue: string): Promise<string> => {
-		if (!compValue || compValue === "none" || compValue === "plain") {
-			return new TextDecoder().decode(bytes);
-		}
-		if (compValue !== "gzip") {
-			throw new Error(`Unsupported compression: ${compValue}`);
-		}
-		if (typeof DecompressionStream === "undefined") {
-			throw new Error("This browser does not support gzip decompression.");
-		}
-		const buffer = new ArrayBuffer(bytes.byteLength);
-		new Uint8Array(buffer).set(bytes);
-		const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip"));
-		return new Response(stream).text();
-	};
-
-	// --- Hash source ---
-
-	const SUPPORTED_COMPRESSIONS = new Set(["", "none", "plain", "gzip"]);
-
-	const loadFromHash = async (hash: string): Promise<void> => {
-		const rawHash = hash.startsWith("#") ? hash.slice(1) : hash;
 		const params = new URLSearchParams(rawHash);
-		const nameParam = params.get("name")?.trim() ?? "";
-		const compParam = params.get("comp")?.trim().toLowerCase() ?? "";
-		const dataParam = params.get("data")?.trim() ?? "";
-
-		if (!dataParam) {
-			listLoadState = "idle";
+		const apiParam = params.get("api")?.replace(/\/+$/, "") ?? "";
+		if (apiParam.length > 0) {
+			sourceState = { kind: "ready", source: createHttpApiFileSource(apiParam) };
+			sourceVersion += 1;
 			return;
 		}
 
-		if (!SUPPORTED_COMPRESSIONS.has(compParam)) {
-			listLoadState = "error";
-			listErrorMessage = `Unsupported compression: ${compParam || "(empty)"}`;
+		if (params.get("source") === "workspace") {
+			sourceState = { kind: "ready", source: createVfsFileSource(epfSession, "browser workspace") };
+			sourceVersion += 1;
+			return;
+		}
+
+		const hashParams = parseHashFileParams(window.location.hash);
+		if (hashParams === null) {
+			sourceState = { kind: "idle" };
 			return;
 		}
 
 		try {
-			listLoadState = "loading";
-			const bytes = base64ToBytes(dataParam);
-			const text = await decompressIfNeeded(bytes, compParam);
-			const name = nameParam || "document.md";
-			const type: "markdown" | "text" = name.endsWith(".md") ? "markdown" : "text";
-
-			fileList = [{ name, type, modification_time: new Date().toISOString() }];
-			listLoadState = "ready";
-
-			selectedName = name;
-			selectedType = type;
-			fileContent = text;
-			fileLoadState = "ready";
+			sourceState = { kind: "ready", source: await createHashFileSource(hashParams) };
+			sourceVersion += 1;
 		} catch (err) {
-			listLoadState = "error";
-			listErrorMessage = err instanceof Error ? err.message : "Failed to decode hash content.";
+			sourceState = { kind: "error", message: err instanceof Error ? err.message : "Failed to decode the file from the URL hash." };
 		}
 	};
-
-	// --- API source ---
-
-	const fetchFileList = async (): Promise<void> => {
-		if (!apiBase || isFetching) {
-			return;
-		}
-		isFetching = true;
-		try {
-			// Only show the loading state on the initial fetch (no files yet).
-			if (fileList.length === 0) {
-				listLoadState = "loading";
-			}
-			const res = await fetch(`${apiBase}/`);
-			if (!res.ok) {
-				throw new Error(`HTTP ${res.status}`);
-			}
-			const data = await res.json();
-			const rawFiles: Array<{ name: string; type: "markdown" | "text"; modification_time?: unknown }> = data.files ?? data;
-			const newFiles: FileEntry[] = rawFiles.map((f) => ({
-				name: f.name,
-				type: f.type,
-				modification_time: new Date(f.modification_time as string | number | Date ?? Date.now()).toISOString(),
-			}));
-			const prevSelected = selectedName;
-			const prevModTime = fileList.find((f) => f.name === prevSelected)?.modification_time ?? "";
-			fileList = newFiles;
-			listLoadState = "ready";
-			const newEntry = fileList.find((f) => f.name === prevSelected);
-			if (prevSelected && newEntry) {
-				// If the server updated the selected file, refresh its content in the
-				// background WITHOUT touching selectedName. Guard the write-back so a
-				// user click that happened during the await is never overwritten.
-				if (newEntry.modification_time !== prevModTime) {
-					const contentRes = await fetch(`${apiBase}/${encodeURIComponent(prevSelected)}`);
-					if (contentRes.ok && selectedName === prevSelected) {
-						const contentData = await contentRes.json();
-						selectedType = contentData.type ?? "markdown";
-						fileContent = contentData.content ?? "";
-					}
-				}
-				return;
-			}
-			if (!selectedName && fileList.length > 0) {
-				await selectFile(fileList[0].name);
-			}
-		} catch (err) {
-			listLoadState = "error";
-			listErrorMessage =
-				err instanceof Error
-					? err.message
-					: "Failed to fetch file list";
-		} finally {
-			isFetching = false;
-		}
-	};
-
-	const selectFile = async (name: string): Promise<void> => {
-		if (!apiBase) {
-			return;
-		}
-		selectedName = name;
-		try {
-			fileLoadState = "loading";
-			const res = await fetch(`${apiBase}/${encodeURIComponent(name)}`);
-			if (!res.ok) {
-				throw new Error(`HTTP ${res.status}`);
-			}
-			const data = await res.json();
-			selectedType = data.type ?? "markdown";
-			fileContent = data.content ?? "";
-			fileLoadState = "ready";
-		} catch (err) {
-			fileLoadState = "error";
-			fileErrorMessage =
-				err instanceof Error ? err.message : "Failed to fetch file";
-			fileContent = "";
-		}
-	};
-
-	let refreshInterval: ReturnType<typeof setInterval> | undefined;
 
 	onMount(() => {
-		const rawHash = window.location.hash.startsWith("#")
-			? window.location.hash.slice(1)
-			: window.location.hash;
-		const hashParams = new URLSearchParams(rawHash);
-		const apiParam = hashParams.get("api")?.replace(/\/+$/, "") ?? "";
-
-		if (apiParam) {
-			apiBase = apiParam;
-			void fetchFileList();
-			refreshInterval = setInterval(() => void fetchFileList(), 3000);
-			return () => {
-				if (refreshInterval) {
-					clearInterval(refreshInterval);
-				}
-			};
-		}
-
-		if (window.location.hash) {
-			isHashSource = true;
-			void loadFromHash(window.location.hash);
-			const onHashChange = () => void loadFromHash(window.location.hash);
-			window.addEventListener("hashchange", onHashChange);
-			return () => window.removeEventListener("hashchange", onHashChange);
-		}
-
-		listLoadState = "idle";
+		void resolveSource();
+		const onHashChange = () => void resolveSource();
+		window.addEventListener("hashchange", onHashChange);
+		return () => window.removeEventListener("hashchange", onHashChange);
 	});
 </script>
 
 <section class="section" style="padding: 0">
 	<div class="container is-fluid">
-		<div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
-			<div>
-				<p class="subtitle mb-0">
-					{#if apiBase}
-						Viewing outputs from <code>{apiBase}</code>
-					{:else if isHashSource}
-						Viewing file from URL hash
-					{:else}
-						Results Viewer
-					{/if}
-				</p>
-			</div>
-			<div class="is-flex is-align-items-center">
-				<label class="checkbox mr-4 label-text" for="escape-pipes-toggle">
-					<input
-						type="checkbox"
-						checked={$escapePipesInTableCode}
-						onchange={(e) => escapePipesInTableCode.set(e.currentTarget.checked)}
-						id="escape-pipes-toggle"
-						class="mr-2"
-					/>
-					Escape Table Pipes
-				</label>
-				<label class="checkbox mr-4 label-text" for="multiline-toggle">
-					<input
-						type="checkbox"
-						checked={$enableMultilineTableCode}
-						onchange={(e) => enableMultilineTableCode.set(e.currentTarget.checked)}
-						id="multiline-toggle"
-						class="mr-2"
-					/>
-					Table Code Blocks
-				</label>
-				<button
-					class="button is-light"
-					onclick={() => darkMode.update((v) => !v)}
-					title={$darkMode ? "Switch to light mode" : "Switch to dark mode"}
-				>
-					{$darkMode ? "☀️ Light" : "🌙 Dark"}
-				</button>
-			</div>
-		</div>
-
-		{#if !apiBase && !isHashSource}
+		{#if sourceState.kind === "loading"}
+			<progress class="progress is-small is-info" max="100"></progress>
+		{:else if sourceState.kind === "idle"}
 			<article class="message is-warning">
 				<div class="message-body">
 					<p class="mb-2">Provide a source to get started:</p>
 					<ul>
-						<li>Live API: <code>#api=http://localhost:3000</code></li>
-						<li>Hash file: <code>#name=file.md&amp;comp=gzip&amp;data=…</code></li>
+						<li>Live API (CLI in WebUI mode): <code>#api=http://localhost:3000</code></li>
+						<li>Browser workspace (EPF page): <code>#source=workspace</code></li>
+						<li>Single file: <code>#name=file.md&amp;comp=gzip&amp;data=…</code></li>
 					</ul>
 				</div>
 			</article>
-		{/if}
-		{#if listLoadState === "error"}
+		{:else if sourceState.kind === "error"}
 			<article class="message is-danger">
 				<div class="message-header">
-					<p>{apiBase ? "Unable to connect to API" : "Unable to decode file"}</p>
+					<p>Unable to decode file</p>
 				</div>
-				<div class="message-body">{listErrorMessage}</div>
+				<div class="message-body">{sourceState.message}</div>
 			</article>
-		{/if}
-		{#if fileList.length > 0}
-			<div class="columns">
-				<div class="column is-2">
-					<aside class="menu">
-						<p class="menu-label">Files ({fileList.length})</p>
-						<ul class="menu-list file-list">
-							{#each fileList as file (file.name)}
-								<li>
-									<button
-										class={"button is-text is-fullwidth has-text-left menu-item-btn" + (selectedName === file.name ? " is-active" : "")}
-										onclick={() => void selectFile(file.name)}
-										disabled={isHashSource}
-									>
-										<span class="is-family-monospace">{file.name}</span>
-										<span class="tag is-small is-light ml-2">{file.type}</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					</aside>
-				</div>
-
-				<div class="column is-10" style="min-width: 0; flex-shrink: 1;">
-					{#if fileLoadState === "loading"}
-						<progress class="progress is-small is-info" max="100"></progress>
-					{:else if fileLoadState === "error"}
-						<article class="message is-danger">
-							<div class="message-header"><p>Failed to load file</p></div>
-							<div class="message-body">{fileErrorMessage}</div>
-						</article>
-					{:else if fileLoadState === "ready"}
-						<div class="box" style="overflow-x: auto;">
-							<p class="has-text-weight-semibold is-family-monospace mb-3">
-								{selectedName}
-								{#if selectedModificationTime}
-									<span class="is-size-7 has-text-grey ml-2">{selectedModificationTime}</span>
-								{/if}
-							</p>
-							{#if selectedType === "markdown"}
-								<div class="content">
-									{@html renderedHtml}
-								</div>
-							{:else}
-								<pre class="raw-text">{fileContent}</pre>
-							{/if}
-						</div>
-					{:else}
-						<article class="message is-info">
-							<div class="message-body">Select a file from the sidebar to view its contents.</div>
-						</article>
-					{/if}
-				</div>
-			</div>
 		{:else}
-			<p>No Files</p>
+			{#key sourceVersion}
+				<FileBrowser source={sourceState.source} />
+			{/key}
 		{/if}
 	</div>
 </section>
-
-<style>
-	.file-list {
-		max-height: 80vh;
-		overflow-y: auto;
-	}
-
-	.file-list .menu-item-btn {
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.file-list .menu-item-btn.is-active {
-		background-color: #485fc7;
-		color: #fff;
-	}
-
-	.file-list .menu-item-btn.is-active .tag {
-		background-color: rgba(255, 255, 255, 0.2);
-		color: #fff;
-	}
-
-	.menu-item-btn {
-		background: none;
-		border: none;
-		text-align: left;
-		padding: 0.5em 0.75em;
-		font-size: 0.9rem;
-	}
-
-	.raw-text {
-		white-space: pre-wrap;
-		word-break: break-word;
-		font-size: 0.875rem;
-	}
-	/* Remove the extra border Bulma adds around <pre> blocks — the hljs background
-	   already provides sufficient visual separation */
-	:global(.content pre) {
-		border: none;
-		padding: 0;
-	}
-
-	/* Label styles */
-	.label-text {
-		font-size: 0.9rem;
-		font-weight: 500;
-		color: #4a4a4a;
-		display: inline-flex;
-		align-items: center;
-		cursor: pointer;
-		user-select: none;
-	}
-
-	:global(html[data-theme="dark"]) .label-text {
-		color: #f5f5f5;
-	}
-
-</style>

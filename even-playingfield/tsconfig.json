@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     // Environment setup & latest features
-    "lib": ["ESNext"],
+    // DOM is included so the browser-targeted files and their tests type-check
+    // here too; `tsconfig.web.json` re-checks them with no Bun/Node types, which
+    // is what actually enforces the platform boundary.
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
@@ -25,5 +28,6 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "exclude": ["node_modules"]
 }

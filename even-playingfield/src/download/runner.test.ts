@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { toPosixPath } from "../platform/path.ts";
+import { BunFileSystem } from "../platform/bun/bun-fs.ts";
 import { runDownload } from "./runner.ts";
-import type { DownloadPlan, RemoteFile } from "./types.ts";
+import type { DownloadOptions, DownloadPlan, RemoteFile } from "./types.ts";
 
 const createdDirs: string[] = [];
 
@@ -12,6 +14,17 @@ function makeTempDir(): string {
     const dir = mkdtempSync(join(tmpdir(), "epf-download-"));
     createdDirs.push(dir);
     return dir;
+}
+
+/** Writing goes through the platform filesystem, so the CLI target uses node:fs. */
+function optionsFor(dir: string, overrides: Partial<DownloadOptions> = {}): DownloadOptions {
+    return {
+        outputDir: dir,
+        skipExisting: false,
+        concurrency: 4,
+        fs: new BunFileSystem(toPosixPath(dir)),
+        ...overrides,
+    };
 }
 
 function file(relativePath: string, content: string): RemoteFile {
@@ -36,7 +49,7 @@ describe("runDownload", () => {
         const dir = makeTempDir();
         const summary = await runDownload(
             planOf([file("a.txt", "alpha"), file("nested/deep/b.txt", "beta")]),
-            { outputDir: dir, skipExisting: false, concurrency: 4 },
+            optionsFor(dir),
         );
 
         expect(summary.downloaded).toBe(2);
@@ -49,11 +62,7 @@ describe("runDownload", () => {
         const dir = makeTempDir();
         writeFileSync(join(dir, "a.txt"), "old");
 
-        await runDownload(planOf([file("a.txt", "new")]), {
-            outputDir: dir,
-            skipExisting: false,
-            concurrency: 1,
-        });
+        await runDownload(planOf([file("a.txt", "new")]), optionsFor(dir, { concurrency: 1 }));
 
         expect(await Bun.file(join(dir, "a.txt")).text()).toBe("new");
     });
@@ -64,13 +73,40 @@ describe("runDownload", () => {
 
         const summary = await runDownload(
             planOf([file("a.txt", "new"), file("b.txt", "fresh")]),
-            { outputDir: dir, skipExisting: true, concurrency: 2 },
+            optionsFor(dir, { skipExisting: true, concurrency: 2 }),
         );
 
         expect(summary.skipped).toBe(1);
         expect(summary.downloaded).toBe(1);
         expect(await Bun.file(join(dir, "a.txt")).text()).toBe("old");
         expect(await Bun.file(join(dir, "b.txt")).text()).toBe("fresh");
+    });
+
+    test("reports files above the size cap instead of writing them", async () => {
+        const dir = makeTempDir();
+        let loaded = 0;
+        const declared: RemoteFile = {
+            relativePath: "big-declared.txt",
+            size: 50,
+            load: async () => {
+                loaded += 1;
+                return new TextEncoder().encode("x");
+            },
+        };
+        const undeclared: RemoteFile = { relativePath: "big-undeclared.txt", load: async () => new TextEncoder().encode("y".repeat(50)) };
+
+        const summary = await runDownload(
+            planOf([declared, undeclared, file("small.txt", "ok")]),
+            optionsFor(dir, { maxFileBytes: 10, concurrency: 1 }),
+        );
+
+        expect(summary.tooLarge).toBe(2);
+        expect(summary.downloaded).toBe(1);
+        // The declared-oversize file was rejected before its bytes were fetched.
+        expect(loaded).toBe(0);
+        expect(await Bun.file(join(dir, "big-declared.txt")).exists()).toBe(false);
+        expect(await Bun.file(join(dir, "big-undeclared.txt")).exists()).toBe(false);
+        expect(await Bun.file(join(dir, "small.txt")).text()).toBe("ok");
     });
 
     test("isolates per-file failures", async () => {
@@ -84,7 +120,7 @@ describe("runDownload", () => {
 
         const summary = await runDownload(
             planOf([file("ok.txt", "fine"), broken]),
-            { outputDir: dir, skipExisting: false, concurrency: 2 },
+            optionsFor(dir, { concurrency: 2 }),
         );
 
         expect(summary.downloaded).toBe(1);
@@ -111,11 +147,7 @@ describe("runDownload", () => {
             });
         }
 
-        const summary = await runDownload(planOf(files), {
-            outputDir: dir,
-            skipExisting: false,
-            concurrency: 3,
-        });
+        const summary = await runDownload(planOf(files), optionsFor(dir, { concurrency: 3 }));
 
         expect(summary.downloaded).toBe(8);
         expect(maxInFlight).toBeLessThanOrEqual(3);
@@ -127,11 +159,10 @@ describe("runDownload", () => {
         const dir = makeTempDir();
         const nestedOutput = join(dir, "does", "not", "exist");
 
-        const summary = await runDownload(planOf([file("a.txt", "hi")]), {
-            outputDir: nestedOutput,
-            skipExisting: false,
-            concurrency: 1,
-        });
+        const summary = await runDownload(
+            planOf([file("a.txt", "hi")]),
+            optionsFor(dir, { outputDir: nestedOutput, concurrency: 1 }),
+        );
 
         expect(summary.downloaded).toBe(1);
         expect(await Bun.file(join(nestedOutput, "a.txt")).text()).toBe("hi");

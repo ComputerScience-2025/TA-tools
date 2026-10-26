@@ -152,8 +152,10 @@ describe("stringifyToml", () => {
         });
 
         test("No leading newline inserted after opening delimiter", () => {
-            // Bun.TOML.parse does NOT trim the leading newline after """
-            // (unlike the TOML spec), so emitting one would corrupt the value.
+            // A literal newline right after the opening """ is trimmed by
+            // spec-compliant parsers (Bun does this as of 1.4), so the emitter
+            // never relies on one: values that begin with a newline emit it as
+            // the \n escape instead.
             const value = "first\nsecond";
             const out = stringifyToml({ k: value });
             const parsed = Bun.TOML.parse(out) as Record<string, unknown>;

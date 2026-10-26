@@ -1,38 +1,45 @@
-# sv
+# TA Dashboard
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit app (Svelte 5 runes + Bulma) holding everything that needs a UI.
 
-## Creating a project
+## Commands
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
+```bash
+bun install
+bun run dev        # dev server
+bun run build      # production build
+bun run check      # svelte-check (types + a11y)
+bun run preview    # preview the production build
 ```
 
-## Developing
+## Pages
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+| Route | What it does |
+|---|---|
+| `/tools/comments-calculator` | Scores review comments against a rubric (GitHub API via Octokit, client-side) |
+| `/tools/links-opener` | Bulk-opens links |
+| `/tools/results-viewer` | Renders EPF output files from three sources: a live CLI API (`#api=…`), a URL-embedded file (`#name=…&comp=gzip&data=…`), or the browser workspace (`#source=workspace`) |
+| `/apps/epf` | Runs EPF entirely in the browser: fetch a repo, upload files, edit the config, run workflows in a pseudo-shell console, read the outputs |
 
-```sh
-npm run dev
+`/apps/epf` and `/tools/results-viewer` are client-only (`ssr = false`).
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+## EPF in the browser
 
-## Building
+- The EPF core and its browser platform live in `../even-playingfield/src`, imported through the `$epf` alias
+  (declared in `svelte.config.js`; `vite.config.ts` allows the dev server to read outside the project root).
+- `src/lib/epf/session.ts` owns the single `WebEPF` instance and exposes it as Svelte stores; `src/lib/epf/settings.ts`
+  holds UI preferences. Both pages share the session, so navigating between them keeps the workspace.
+- `src/lib/components/FileBrowser.svelte` and `src/lib/results/file-sources.ts` implement the three result sources listed above.
+  Markdown is rendered through `dompurify`, because outputs can quote text from an untrusted repository.
+- Files persist in IndexedDB through ZenFS. Storage limits (total, per file, source TTL) are configurable in the EPF page's
+  Config tab; over the cap, the least recently used unpinned workspace is removed.
+- "Clear outputs" (the Outputs tab, or `clear`/`rerun` in the console) deletes exactly the files runs recorded for that
+  workspace, so fetched sources and the config stay. Deleting a whole workspace is a separate action in the Source tab.
+- Secrets (GitHub PATs) stay in memory unless "remember on this device" is enabled. Turning "remember" off clears what was
+  stored. Only the tab that owns the storage lock writes; a viewer tab reads the persisted store without touching `localStorage`.
+- Testing workflows need a shell and therefore only run in the CLI.
 
-To create a production version of your app:
+## Deployment note
 
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Because `$epf` points outside this directory, the deployed build must see both packages: set the Vercel project root to the
+repository root (install/build commands `cd ta-dashboard && bun install && bun run build`), or the alias cannot resolve.

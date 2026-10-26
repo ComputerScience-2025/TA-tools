@@ -1,13 +1,9 @@
-import { Glob } from "bun";
-import { join } from "node:path";
-
-import chalk from "chalk";
-
+import { scanGlob } from "../platform/glob.ts";
+import { joinPath } from "../platform/path.ts";
 import { FilePayloadGenerator } from "../util/file-payload.ts";
 import type { WorkflowDependencies } from "./index.ts";
 import type { CompletionMetrics } from "../util/llm.ts";
 import type { AnalysisWorkflow } from "../util/config-schema.ts";
-
 
 export type AnalysisWorkflowResult = {
     slug: string;
@@ -28,26 +24,27 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
         completions: [],
     };
 
-    console.log(`Executing analysis workflow: ${workflow.slug}`);
-    const log = (...args: Parameters<typeof console.log>) => {
-        console.log(chalk.cyan(`[${workflow.slug}]`), ...args);
+    deps.logger.log("info", `Executing analysis workflow: ${workflow.slug}`);
+    const log = (message: string, ...data: unknown[]) => {
+        deps.logger.log("info", message, { slug: workflow.slug, data });
     }
-    const warn = (...args: Parameters<typeof console.warn>) => {
-        console.warn(chalk.red(`[${workflow.slug}]`), ...args);
+    const warn = (message: string, ...data: unknown[]) => {
+        deps.logger.log("warn", message, { slug: workflow.slug, data });
     }
 
+    // File searches and their matches, resolved through the platform filesystem
+    // (relative paths resolve against the workspace root on every platform).
     let allFiles = (
         await Promise.all(
             workflow.input_files_searches.map(async (fileSearch) => {
                 const fileExclusionsSet = new Set(fileSearch.excluded_files);
-                const glob = new Glob(fileSearch.file_glob);
                 const matches: string[] = [];
-                for await (const file of glob.scan(fileSearch.search_directory)) {
-                    if (fileExclusionsSet.has(file)) {
-                        log(`Excluding file: ${file}`);
+                for (const relativePath of await scanGlob(deps.fs, fileSearch.file_glob, fileSearch.search_directory)) {
+                    if (fileExclusionsSet.has(relativePath)) {
+                        log(`Excluding file: ${relativePath}`);
                         continue;
                     }
-                    matches.push(join(fileSearch.search_directory, file));
+                    matches.push(joinPath(fileSearch.search_directory, relativePath));
                 }
                 log(`Found ${matches.length} files for search: ${fileSearch.file_glob} in ${fileSearch.search_directory}`, matches);
                 return matches;
@@ -68,7 +65,7 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
 
     try {
         log(`Found ${allFiles.length} files for workflow`);
-        const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles);
+        const fileContentsPayload = await FilePayloadGenerator.generatePayloads(allFiles, deps.fs);
         const completion = await deps.llmClient.generateCompletion(log, warn, workflow.model, workflow.prompt, fileContentsPayload.map((file) => {
             return {
                 type: "text",

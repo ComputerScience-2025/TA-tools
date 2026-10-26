@@ -1,0 +1,11 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Browser platform files run in a DOM environment: no Bun/Node globals.
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
+        "types": []
+    },
+    // Test files are excluded because they import `bun:test`.
+    "include": ["src/platform/web/**/*.ts", "src/hosts/web-host.ts"],
+    "exclude": ["src/platform/web/**/*.test.ts", "node_modules"]
+}

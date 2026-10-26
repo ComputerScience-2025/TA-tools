@@ -7,7 +7,7 @@ Four independent packages in this directory. Each has its own `package.json`, `t
 | Package | Type | Purpose | Dev entry | Build |
 |---|---|---|---|---|
 | `import-tools/` | GitHub automation scripts (CLI) | Upload files downloaded from Canvas to GitHub repos | `src/*.ts` via `bun run <script>` | — |
-| `even-playingfield/` | Compiled CLI binary | The AI tool for analyzing submissions | `src/cli.ts` | `bun build --compile` |
+| `even-playingfield/` | CLI binary **and** browser core | The AI tool for analyzing submissions | `src/hosts/cli-host.ts` (CLI), `src/hosts/web-host.ts` (web) | `bun build --compile` |
 | `ta-dashboard/` | SvelteKit + Svelte 5 + Bulma | Everything that needs an interactive web interface | `src/routes/` (SvelteKit) | `bun run build` |
 | `epf-eval/` | Benchmark harness (git submodule) | Proprietary evaluation benchmark for `even-playingfield` | `src/scripts/*.ts` via `bun run <script>` | — |
 
@@ -35,13 +35,42 @@ Key dependencies: `octokit` (GitHub API), `isomorphic-git`, `csv-simple-parser`.
 
 Commands (run in `even-playingfield/`):
 - `bun run start` — run in dev (uncompiled)
-- `bun run build-dev` — compile to `build/epf.exe` (current platform)
+- `bun run build:dev` — compile to `build/epf.exe` (current platform)
 - `bun run build:all` — cross-compile for linux-x64/arm64, windows-x64, darwin-x64/arm64
 - `bun run config-gen` — regenerate `epf.example.toml` from Zod schema defaults
 - `bun run bump <semver>` — bump version in root + all 5 platform sub-packages
 - `bun run publish:all` / `publish:dry` — publish all to npm
 
-Config: TOML, loaded from `--config` CLI arg → `EPF_CONFIG_URL` env var → `epf.toml` in cwd/home. Validated with Zod v4 schemas in `src/util/config-schema.ts`.
+Testing:
+- `bun test` — unit + contract tests (run after any change to the core or platform layer)
+- `bun run check` — type check (Bun environment)
+- `bun run check:web` — type check with DOM libs and **no** Bun/Node types, which enforces the platform boundary
+
+### Platform layer (why it exists)
+
+The core (`engine/`, `workflow/`, `util/`) must run under Bun *and* in a browser. It reaches the outside world only through
+`src/platform/types.ts`:
+
+| Interface | Bun | Browser |
+|---|---|---|
+| `VirtualFileSystem` | `BunFileSystem` (node:fs) | `ZenFileSystem` (@zenfs/core + IndexedDB) |
+| `EnvProvider` | `process.env` | `localStorage` JSON + session overlay |
+| `ShellRunner` | Bun `$` | unavailable (testing workflows fail fast) |
+| `Logger` | console + chalk | ring buffer + xterm renderer |
+| `toml` | `Bun.TOML.parse` | `smol-toml` |
+
+Rules:
+- Core files must not import `bun`, `node:*`, or DOM globals. `src/platform/boundary.test.ts` fails the test suite if they do
+  (it scans `engine/`, `workflow/`, `util/`, `download/`, `command-handler.ts`, and the shared platform helpers).
+- Globbing goes through `src/platform/glob.ts` (picomatch + a VFS walk) so CLI and browser match identically.
+- Paths inside the platform layer are POSIX-style; relative paths resolve against `fs.root` (Bun: cwd, browser: active workspace).
+- Hosts wire platforms: `hosts/local-api-host.ts` (Bun/CLI/`epf-eval`) and `hosts/web-host.ts` (`WebEPF`).
+- `download/` writes through the VFS, so the GitHub remote serves both the CLI and the browser. Non-fatal notes reach the user
+  through `PlanOptions.onNote` (the CLI leaves it out and gets `console.warn`).
+- Output files are recorded, not guessed: the engine reports each run's filenames, the browser host keeps them per workspace in
+  `WebState.outputs`, and "clear outputs" deletes exactly those names. Never delete a directory's files by pattern.
+
+Config: TOML, loaded from `--config` CLI arg → `EPF_CONFIG_URL` env var → `epf.toml` in cwd/home. Validated with Zod v4 schemas in `src/util/config-schema.ts`. Env-var names live in `src/util/env-vars.ts` (the web UI renders that registry).
 
 Key dependencies: `ai` (Vercel AI SDK core), `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `chalk`, `smol-toml`, `zod-defaults`.
 
@@ -60,8 +89,21 @@ Commands (run in `ta-dashboard/`):
 SvelteKit conventions:
 - Svelte 5 **Runes API** only: `$state()`, `$derived()`, `$effect()`, `$props()`, `{@render children?.()}`. Never use `export let`, `$:`, `on:click`.
 - Use `$lib/` alias for imports from `src/lib/` (never cross `src/lib` with relative paths).
-- SSR is disabled for `/tools/comments-calculator` (`+page.js` has `export const ssr = false`).
+- SSR is disabled for `/tools/comments-calculator` and `/apps/epf` (`+page.js` has `export const ssr = false`).
 - Pages that call GitHub API (`comments-calculator`) do so client-side via Octokit — PAT is read from a persisted Svelte store.
+
+Browser EPF integration:
+- `$epf` is a SvelteKit alias for `../even-playingfield/src` (see `svelte.config.js`); `vite.config.ts` allows the dev server to serve
+  files outside the project root, and declares the dynamically imported dependencies in `optimizeDeps`.
+- `src/lib/epf/session.ts` is the module-level singleton owning the `WebEPF` instance and exposing it as Svelte stores.
+  `ensure()` creates a read-write session; `ensure({ writeAccess: false })` (the results viewer) reads the persisted store
+  from another tab without taking the write lock. Internal refreshes use `requireSession()`—never `ensure()`—or they deadlock.
+- A read-write session owns the storage lock and persists; a second tab (and every read-only session) mounts memory-only or
+  read-only and never writes the `localStorage` state blob. `WebStateStore`/`WebEnvProvider` take `{ persist: false }` for that.
+- `src/lib/components/FileBrowser.svelte` + `src/lib/results/file-sources.ts` serve all three result sources: live API (`#api=`),
+  URL hash (`#name=&comp=&data=`), and the browser workspace (`#source=workspace`, which lists the recorded outputs). Rendered
+  markdown is sanitized with `dompurify` before `{@html}`, because a fetched repository's files are untrusted input.
+- EPF deps are version-pinned in `ta-dashboard/package.json` to match `even-playingfield`; keep them in step.
 
 Styling: Bulma CSS classes. Toast notifications via `@zerodevx/svelte-toast`. Markdown rendering via `marked`.
 
@@ -88,6 +130,9 @@ Shared code: reuses `../even-playingfield/src/util/llm.ts` (Vercel AI SDK) via i
 
 Evaluation criteria are stored in TOML files under each case's `eval/` directory and aggregated by the bench harness. The LLM-as-judge uses OpenAI-compatible endpoints only.
 
+The harness imports `EPF` from `even-playingfield/src/hosts/local-api-host.ts`, so that class, its `EPFOptions`, and
+`WorkflowRunResult` are a stable contract — refactors must keep them working (`bun run check` in `epf-eval` catches drift).
+
 Note: since it is a git submodule, need to check for uncommitted changes separately for reviewing.
 
 ---
@@ -98,6 +143,19 @@ Note: since it is a git submodule, need to check for uncommitted changes separat
 - `tsconfig.json` in every package has `strict: true`. Never disable it. `verbatimModuleSyntax` requires `import type` for type-only imports.
 - `even-playingfield` builds compile with `Bun.build({ target: "bun", compile: true })`. Version stamp is injected via `define: { EPF_VERSION }`.
 - Each `.github/copilot-instructions.md` contains package-specific guidance that is subsumed by this file.
+
+## Dependencies added for the browser target
+
+| Package | Where | License | Why |
+|---|---|---|---|
+| `picomatch` | `even-playingfield` (runtime), `ta-dashboard` | MIT | Glob matching shared by CLI and browser |
+| `@zenfs/core`, `@zenfs/dom` | `even-playingfield` (dev), `ta-dashboard` | **LGPL-3.0-or-later** | Browser filesystem (in-memory + IndexedDB backends) |
+| `fake-indexeddb` | `even-playingfield` (dev) | MIT | Tests the IndexedDB backend without a browser |
+| `@xterm/xterm`, `@xterm/addon-fit`, `xterm-readline` | `ta-dashboard` | MIT | The `/apps/epf` pseudo-shell console |
+| `dompurify` | `ta-dashboard` | **MPL-2.0 OR Apache-2.0** | Sanitizes rendered markdown (results can come from an untrusted repository) |
+
+The bundled web graph is ~90 KB gzip for storage + glob and ~155 KB gzip with the terminal; it is loaded only on `/apps/epf`
+through dynamic imports. Note the LGPL dependency if the dashboard is ever served publicly (source-availability applies).
 
 ---
 

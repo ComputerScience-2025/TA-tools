@@ -1,10 +1,7 @@
-import {$} from "bun";
-
-import chalk from "chalk";
-import {LLMJudgeInputModeEnum} from "../util/config-schema.ts";
-import type {TestingWorkflow} from "../util/config-schema.ts";
-import type {WorkflowDependencies} from "./index.ts";
-import type {CompletionMetrics} from "../util/llm.ts";
+import { LLMJudgeInputModeEnum } from "../util/config-schema.ts";
+import type { TestingWorkflow } from "../util/config-schema.ts";
+import type { WorkflowDependencies } from "./index.ts";
+import type { CompletionMetrics } from "../util/llm.ts";
 
 export type TestingWorkflowResult = {
     slug: string;
@@ -16,6 +13,25 @@ export type TestingWorkflowResult = {
     testCases: { name: string; passed: boolean; explanation?: string }[];
 };
 
+/**
+ * Message shown when a testing workflow is attempted on a platform without a
+ * shell (the browser). Analysis workflows are unaffected.
+ */
+export const SHELL_REQUIRED_MESSAGE =
+    "Testing workflows run shell commands, which this platform does not provide. Run them with the CLI (even-pf).";
+
+/** Minimal fixed-width table for the per-test-case summary. */
+function formatTable(rows: string[][]): string {
+    if (rows.length === 0) {
+        return "";
+    }
+    const widths = rows[0]!.map((_, columnIndex) =>
+        Math.max(...rows.map((row) => (row[columnIndex] ?? "").length)));
+    return rows
+        .map((row) => row.map((cell, index) => cell.padEnd(widths[index] ?? 0)).join("  ").trimEnd())
+        .join("\n");
+}
+
 export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: number, deps: WorkflowDependencies): Promise<TestingWorkflowResult> {
     const startTime = Date.now();
     const resultBase: Omit<TestingWorkflowResult, "status" | "error" | "latencyMs" | "testCases"> = {
@@ -26,22 +42,33 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
     const completions: CompletionMetrics[] = [];
     const testCases: { name: string; passed: boolean; explanation?: string }[] = [];
 
-    console.log(`Executing testing workflow: ${workflow.slug}`);
-    const log = (...args: Parameters<typeof console.log>) => {
-        console.log(chalk.cyan(`[${workflow.slug}]`), ...args);
+    deps.logger.log("info", `Executing testing workflow: ${workflow.slug}`);
+    const log = (message: string, ...data: unknown[]) => {
+        deps.logger.log("info", message, { slug: workflow.slug, data });
     }
-    const warn = (...args: Parameters<typeof console.warn>) => {
-        console.warn(chalk.red(`[${workflow.slug}]`), ...args);
+    const warn = (message: string, ...data: unknown[]) => {
+        deps.logger.log("warn", message, { slug: workflow.slug, data });
     }
-    const debug = (...args: Parameters<typeof console.debug>) => {
-        console.debug(chalk.gray(`[${workflow.slug}]`), ...args.map(e => typeof e === "string" ? chalk.gray(e) : e));
+    const debug = (message: string, ...data: unknown[]) => {
+        deps.logger.log("debug", message, { slug: workflow.slug, data });
     }
 
-    log(`$PATH: ${process.env.PATH}`);
-    
+    if (!deps.shell.available) {
+        warn(SHELL_REQUIRED_MESSAGE);
+        return {
+            ...resultBase,
+            status: "failed",
+            error: SHELL_REQUIRED_MESSAGE,
+            latencyMs: Date.now() - startTime,
+            testCases: [],
+        };
+    }
+
+    debug(`$PATH: ${deps.env.get("PATH") ?? ""}`);
+
     for (const command of workflow.setup_commands){
         log(`Running setup command: ${command}`);
-        await $`${{raw: command}}`.nothrow();
+        await deps.shell.run(command, { cwd: deps.fs.root });
     }
 
     let testCasesResults: boolean[] = new Array(workflow.test_cases.length);
@@ -50,19 +77,19 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
         try {
             const testCase = workflow.test_cases[i]!;
             log(`Running test case ${i + 1}/${workflow.test_cases.length}: ${testCase.name}`);
-            
+
             if (testCase.interactive_steps.length > 0) {
                 warn("Interactive steps are not supported in this version. Skipping interactive steps.");
                 testCasesResults[i] = false;
                 continue;
             }
-            
-            let {stdout, stderr, exitCode} = await $`${{raw: testCase.single_run_command}}`.cwd(testCase.work_directory).nothrow().quiet();
-            console.log();  // Blank line for readability
+
+            let {stdout, stderr, exitCode} = await deps.shell.run(testCase.single_run_command, { cwd: testCase.work_directory });
+            log("");  // Blank line for readability
             debug(`Test case stdout (${stdout.length}):\n${stdout}`);
             debug(`Test case stderr (${stderr.length}):\n${stderr}`);
             debug(`Exit code: ${exitCode}`);
-            
+
             let commandOutput = stdout.toString();
             if (testCase.single_run_expected_output.prefix_strip_string.length > 0) {
                 let prefixIndex = commandOutput.indexOf(testCase.single_run_expected_output.prefix_strip_string);
@@ -77,7 +104,7 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
                 }
             }
             debug("Sanitized command output for evaluation:\n", commandOutput);
-            
+
             if (testCase.single_run_expected_output.llm_judge_input_mode == LLMJudgeInputModeEnum.None){
                 if (stdout.includes(testCase.single_run_expected_output.substring)) {
                     log(`Test case '${testCase.name}' passed: expected substring found in output.`);
@@ -101,17 +128,17 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
                         log(`LLM judge completion:\n${completionText}`);
                         const llmJudgeResult = completionText.toLowerCase().includes("pass");  // TODO: More robust parsing
                         if (llmJudgeResult) {
-                            log(chalk.green(`Test case '${testCase.name}' passed according to LLM judge.`));
+                            log(`Test case '${testCase.name}' passed according to LLM judge.`);
                             testCasesResults[i] = true;
                         }
                         else {
-                            warn(chalk.yellowBright(`Test case '${testCase.name}' failed according to LLM judge.`));
+                            warn(`Test case '${testCase.name}' failed according to LLM judge.`);
                             testCasesResults[i] = false;
                         }
-                        
+
                         try {
                             const judgeResultObject = JSON.parse(completionText);
-                            
+
                             if ("summary" in judgeResultObject) {
                                 testCasesResultsExplanation[i] = judgeResultObject.summary;
                             }
@@ -132,9 +159,9 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
     }
     for (const command of workflow.cleanup_commands){
         log(`Running cleanup command: ${command}`);
-        await $`${{raw: command}}`.nothrow();
+        await deps.shell.run(command, { cwd: deps.fs.root });
     }
-    
+
     for (let i = 0; i < workflow.test_cases.length; i++) {
         const testCase = workflow.test_cases[i]!;
         testCases.push({
@@ -146,13 +173,11 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
 
     const passedCount = testCasesResults.filter((r) => r).length;
     log(`Testing workflow completed. Passed ${passedCount}/${workflow.test_cases.length} test cases.`);
-    console.table(testCases.map((entry) => {
-        return [
-            entry.name,
-            entry.passed ? chalk.green("PASS") : chalk.red("FAIL"),
-            entry.explanation || "",
-        ];
-    }));
+    log(`\n${formatTable(testCases.map((entry) => [
+        entry.name,
+        entry.passed ? "PASS" : "FAIL",
+        entry.explanation || "",
+    ]))}`);
 
     log(`Finished testing workflow: ${workflow.slug}`);
 

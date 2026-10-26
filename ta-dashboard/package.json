@@ -21,12 +21,25 @@
 		"vite": "^7.2.4"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "3.0.85",
+		"@ai-sdk/google": "3.0.83",
+		"@ai-sdk/openai": "3.0.73",
+		"@xterm/addon-fit": "^0.11.0",
+		"@xterm/xterm": "^6.0.0",
+		"@zenfs/core": "2.7.7",
+		"@zenfs/dom": "1.2.14",
 		"@zerodevx/svelte-toast": "^0.9.6",
+		"ai": "6.0.208",
 		"bulma": "^1.0.4",
+		"dompurify": "^3.4.17",
 		"highlight.js": "^11.11.1",
 		"marked": "^17.0.3",
 		"my-svelte-components": "^0.1.0",
 		"octokit": "^5.0.5",
-		"svelte-persisted-store": "^0.12.0"
+		"picomatch": "4.0.7",
+		"smol-toml": "1.9.0",
+		"svelte-persisted-store": "^0.12.0",
+		"xterm-readline": "^1.3.1",
+		"zod": "4.1.12"
 	}
 }

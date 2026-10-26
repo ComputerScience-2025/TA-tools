@@ -1,26 +1,31 @@
 /**
- * GitHub remote backend for `epf download`.
+ * GitHub remote backend for `epf download` and for the browser's one-click
+ * source fetch.
  *
- * Supports directory and file URLs:
+ * Supports repository directory and file URLs, pull request URLs, and explicit
+ * owner/repo/ref/path requests:
  *   https://github.com/{owner}/{repo}/tree/{ref}/{dir}
  *   https://github.com/{owner}/{repo}/blob/{ref}/{file}
+ *   https://github.com/{owner}/{repo}/pull/{number}
  *
  * Uses the REST API. A personal access token read from
  * `EPF_DOWNLOAD_GITHUB_PAT` is optional (required for private repos) and is
- * sent as a bearer token.
+ * sent as a bearer token. The module sticks to `fetch`, so it runs unchanged in
+ * the browser.
  */
 
-import { basename } from "node:path";
-
+import { basenamePath } from "../platform/path.ts";
+import { base64ToBytes } from "../util/base64.ts";
+import { GITHUB_PAT_ENV_VAR } from "../util/env-vars.ts";
 import type {
     DownloadPlan,
     EnvVars,
+    PlanOptions,
     RemoteFile,
     RemoteSource,
 } from "./types.ts";
 
-/** Env var holding the GitHub PAT. Optional; needed for private repos. */
-export const GITHUB_PAT_ENV_VAR = "EPF_DOWNLOAD_GITHUB_PAT";
+export { GITHUB_PAT_ENV_VAR };
 
 const GITHUB_HOST = "github.com";
 const GITHUB_API_BASE = "https://api.github.com";
@@ -31,13 +36,20 @@ const REFS_PER_PAGE = 100;
 const MAX_REF_PAGES = 10;
 
 /** Parsed form of a supported GitHub URL. */
-export type GithubUrl = {
-    owner: string;
-    repo: string;
-    mode: "tree" | "blob";
-    /** Everything after `/tree/` or `/blob/`, i.e. `ref` or `ref/path`. */
-    refAndPath: string;
-};
+export type GithubUrl =
+    | {
+        owner: string;
+        repo: string;
+        mode: "tree" | "blob";
+        /** Everything after `/tree/` or `/blob/`, i.e. `ref` or `ref/path`. */
+        refAndPath: string;
+    }
+    | {
+        owner: string;
+        repo: string;
+        mode: "pull";
+        pullNumber: number;
+    };
 
 /** A ref/path split resolved from an ambiguous `refAndPath` string. */
 export type ResolvedRef = {
@@ -50,13 +62,15 @@ type ApiResult<T> =
     | { ok: false; status: number; message: string };
 
 type MatchingRef = { ref: string };
-type TreeEntry = { path: string; type: "blob" | "tree" | "commit"; sha: string };
+type TreeEntry = { path: string; type: "blob" | "tree" | "commit"; sha: string; size?: number };
 type TreeResponse = { tree: TreeEntry[]; truncated?: boolean };
 type CommitResponse = { sha: string; commit: { tree: { sha: string } } };
 type BlobResponse = { content: string; encoding: string };
-type ContentEntry = { path: string; sha: string; type: "file" | "dir" | "symlink" | "submodule" };
+type ContentEntry = { path: string; sha: string; type: "file" | "dir" | "symlink" | "submodule"; size?: number };
+type RepoResponse = { default_branch: string };
+type PullResponse = { head: { sha: string } };
 
-/** Parse a GitHub URL into owner/repo/mode/refAndPath, or null if unsupported. */
+/** Parse a GitHub URL into owner/repo/mode, or null if unsupported. */
 export function parseGithubUrl(input: string): GithubUrl | null {
     let url: URL;
     try {
@@ -77,6 +91,15 @@ export function parseGithubUrl(input: string): GithubUrl | null {
     const owner = segments[0]!;
     const repo = segments[1]!.replace(/\.git$/i, "");
     const mode = segments[2]!.toLowerCase();
+
+    if (mode === "pull") {
+        const pullNumber = Number.parseInt(segments[3]!, 10);
+        if (!Number.isFinite(pullNumber) || pullNumber <= 0) {
+            return null;
+        }
+        return { owner, repo, mode: "pull", pullNumber };
+    }
+
     if (mode !== "tree" && mode !== "blob") {
         return null;
     }
@@ -112,6 +135,21 @@ export function matchRef(refAndPath: string, refNames: readonly string[]): Resol
         }
     }
     return best;
+}
+
+/** Encoded statuses that mean "the request needs credentials we do not have". */
+const AUTH_ERROR_STATUSES = new Set([401, 403, 429]);
+
+/**
+ * Report a non-fatal note. Without a channel this goes to the console, which a
+ * browser host cannot show, so it passes {@link PlanOptions.onNote} instead.
+ */
+function note(options: PlanOptions | undefined, message: string): void {
+    if (options?.onNote !== undefined) {
+        options.onNote(message);
+        return;
+    }
+    console.warn(message);
 }
 
 /** Build request headers, adding bearer auth only when a token is present. */
@@ -174,6 +212,14 @@ async function listRefNames(
             const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/git/matching-refs/${kind}/${encodeRefPath(prefix)}?per_page=${REFS_PER_PAGE}&page=${page}`;
             const result = await apiGet<MatchingRef[]>(url, headers);
             if (!result.ok) {
+                // A missing or empty prefix just means we cannot match a ref name;
+                // an auth or rate-limit failure must not be guessed around.
+                if (AUTH_ERROR_STATUSES.has(result.status)) {
+                    throw new Error(
+                        `Cannot list refs of '${owner}/${repo}': ${result.message}. ` +
+                        `Set ${GITHUB_PAT_ENV_VAR} for private repositories or rate limits.`,
+                    );
+                }
                 break;
             }
             for (const ref of result.data) {
@@ -229,7 +275,7 @@ async function fetchBlob(
     if (result.data.encoding !== "base64") {
         throw new Error(`Unexpected blob encoding for ${sha}: ${result.data.encoding}`);
     }
-    return new Uint8Array(Buffer.from(result.data.content, "base64"));
+    return base64ToBytes(result.data.content);
 }
 
 /** Resolve a ref (branch, tag, or commit SHA) to its commit's root tree SHA. */
@@ -272,12 +318,13 @@ async function resolveSubtreeSha(
     return currentSha;
 }
 
-/** Build the plan for a `/tree/` (directory) URL. */
+/** Resolve a ref to a tree listing rooted at `path`, as lazy remote files. */
 async function planTree(
     owner: string,
     repo: string,
     resolved: ResolvedRef,
     headers: Record<string, string>,
+    options?: PlanOptions,
 ): Promise<RemoteFile[]> {
     const rootTreeSha = await resolveRootTreeSha(owner, repo, resolved.ref, headers);
     const targetTreeSha = await resolveSubtreeSha(owner, repo, rootTreeSha, resolved.path, headers);
@@ -288,7 +335,7 @@ async function planTree(
         throw new Error(`Failed to list tree '${resolved.ref}:${resolved.path}': ${result.message}`);
     }
     if (result.data.truncated === true) {
-        console.warn("Warning: GitHub truncated the tree listing; some files may be missing.");
+        note(options, "Warning: GitHub truncated the tree listing; some files may be missing.");
     }
 
     // Entries in a subtree listing use paths relative to that subtree, which is
@@ -300,6 +347,7 @@ async function planTree(
         }
         files.push({
             relativePath: entry.path,
+            size: entry.size,
             load: () => fetchBlob(owner, repo, entry.sha, headers),
         });
     }
@@ -327,9 +375,83 @@ async function planBlob(
 
     const entry = result.data;
     return [{
-        relativePath: basename(entry.path),
+        relativePath: basenamePath(entry.path),
+        size: entry.size,
         load: () => fetchBlob(owner, repo, entry.sha, headers),
     }];
+}
+
+/** Resolve the repository's default branch (used when no ref is given). */
+async function resolveDefaultBranch(
+    owner: string,
+    repo: string,
+    headers: Record<string, string>,
+): Promise<string> {
+    const result = await apiGet<RepoResponse>(`${GITHUB_API_BASE}/repos/${owner}/${repo}`, headers);
+    if (!result.ok) {
+        throw new Error(`Failed to read repository '${owner}/${repo}': ${result.message}`);
+    }
+    return result.data.default_branch;
+}
+
+/** Resolve a pull request to the commit SHA of its head branch. */
+async function resolvePullHeadSha(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    headers: Record<string, string>,
+): Promise<string> {
+    const result = await apiGet<PullResponse>(`${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${pullNumber}`, headers);
+    if (!result.ok) {
+        throw new Error(`Failed to resolve pull request #${pullNumber}: ${result.message}`);
+    }
+    return result.data.head.sha;
+}
+
+/** Explicit request form, used by the web UI's owner/repo/branch/directory fields. */
+export type GithubDownloadRequest = {
+    owner: string;
+    repo: string;
+    /** Branch, tag or commit SHA; defaults to the repository's default branch. */
+    ref?: string;
+    /** Directory (tree) or single file (blob) inside the repository. */
+    path?: string;
+    /** Single file download instead of a directory listing. */
+    mode?: "tree" | "blob";
+    /** Token override; otherwise `EPF_DOWNLOAD_GITHUB_PAT` is used. */
+    token?: string;
+};
+
+/** Resolve an explicit owner/repo/ref/path request into a download plan. */
+export async function planGithubDownload(
+    request: GithubDownloadRequest,
+    env: EnvVars,
+    options?: PlanOptions,
+): Promise<DownloadPlan> {
+    const token = request.token ?? env[GITHUB_PAT_ENV_VAR];
+    if (token === undefined || token.trim().length === 0) {
+        note(
+            options,
+            `Note: ${GITHUB_PAT_ENV_VAR} is not set; only public repositories can be downloaded.`,
+        );
+    }
+    const headers = buildHeaders(token);
+
+    const ref = request.ref !== undefined && request.ref.trim().length > 0
+        ? request.ref.trim()
+        : await resolveDefaultBranch(request.owner, request.repo, headers);
+    const path = (request.path ?? "").trim();
+    const mode = request.mode ?? "tree";
+
+    const files = mode === "blob"
+        ? await planBlob(request.owner, request.repo, { ref, path }, headers)
+        : await planTree(request.owner, request.repo, { ref, path }, headers, options);
+
+    const location = path.length > 0 ? `${ref}:${path}` : ref;
+    return {
+        rootLabel: `${request.owner}/${request.repo}@${location}`,
+        files,
+    };
 }
 
 export const githubRemote: RemoteSource = {
@@ -342,7 +464,7 @@ export const githubRemote: RemoteSource = {
         return parseGithubUrl(url) !== null;
     },
 
-    async plan(url: string, env: EnvVars): Promise<DownloadPlan> {
+    async plan(url: string, env: EnvVars, options?: PlanOptions): Promise<DownloadPlan> {
         const parsed = parseGithubUrl(url);
         if (parsed === null) {
             throw new Error(`Not a supported GitHub URL: ${url}`);
@@ -350,15 +472,25 @@ export const githubRemote: RemoteSource = {
 
         const token = env[GITHUB_PAT_ENV_VAR];
         if (token === undefined || token.trim().length === 0) {
-            console.warn(
+            note(
+                options,
                 `Note: ${GITHUB_PAT_ENV_VAR} is not set; only public repositories can be downloaded.`,
             );
         }
         const headers = buildHeaders(token);
 
+        if (parsed.mode === "pull") {
+            const sha = await resolvePullHeadSha(parsed.owner, parsed.repo, parsed.pullNumber, headers);
+            const files = await planTree(parsed.owner, parsed.repo, { ref: sha, path: "" }, headers, options);
+            return {
+                rootLabel: `${parsed.owner}/${parsed.repo}#pull/${parsed.pullNumber}@${sha.slice(0, 7)}`,
+                files,
+            };
+        }
+
         const resolved = await resolveRefAndPath(parsed.owner, parsed.repo, parsed.refAndPath, headers);
         const files = parsed.mode === "tree"
-            ? await planTree(parsed.owner, parsed.repo, resolved, headers)
+            ? await planTree(parsed.owner, parsed.repo, resolved, headers, options)
             : await planBlob(parsed.owner, parsed.repo, resolved, headers);
 
         const location = resolved.path.length > 0

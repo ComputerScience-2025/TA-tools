@@ -48,11 +48,16 @@ export class LlmClient {
 
         // api_key is intentionally required in TOML. We deliberately pass it here
         // so the Vercel AI SDK does not fall back to its env-var defaults.
-        const options: { apiKey: string; baseURL?: string } = {
+        // `headers` carries provider-specific requirements (e.g. Anthropic's
+        // browser-access header) without the SDK inventing its own.
+        const options: { apiKey: string; baseURL?: string; headers?: Record<string, string> } = {
             apiKey: providerConfig.api_key,
         };
         if (providerConfig.endpoint.length > 0) {
             options.baseURL = providerConfig.endpoint;
+        }
+        if (Object.keys(providerConfig.headers).length > 0) {
+            options.headers = { ...providerConfig.headers };
         }
 
         let provider: Provider;

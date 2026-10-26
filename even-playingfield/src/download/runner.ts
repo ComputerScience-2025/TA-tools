@@ -2,14 +2,13 @@
  * Generic download runner.
  *
  * Remote-agnostic: takes a resolved {@link DownloadPlan} and writes every file
- * to disk with bounded concurrency, isolating per-file failures so one bad
- * file does not abort the batch. Overwrites by default; skips existing files
- * when {@link DownloadOptions.skipExisting} is set.
+ * through a {@link VirtualFileSystem} with bounded concurrency, isolating
+ * per-file failures so one bad file does not abort the batch. Overwrites by
+ * default; skips existing files when {@link DownloadOptions.skipExisting} is
+ * set, and reports oversized files instead of writing them.
  */
 
-import { mkdir } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-
+import { joinPath } from "../platform/path.ts";
 import type {
     DownloadOptions,
     DownloadPlan,
@@ -26,7 +25,7 @@ import type {
 async function runPool<T>(
     items: T[],
     concurrency: number,
-    worker: (item: T) => Promise<void>,
+    worker: (item: T, index: number) => Promise<void>,
 ): Promise<void> {
     const limit = Math.max(1, Math.min(concurrency, items.length));
     let nextIndex = 0;
@@ -40,7 +39,7 @@ async function runPool<T>(
                 if (current >= items.length) {
                     return;
                 }
-                await worker(items[current]!);
+                await worker(items[current]!, current);
             }
         })());
     }
@@ -48,20 +47,35 @@ async function runPool<T>(
     await Promise.all(runners);
 }
 
+function tooLargeOutcome(file: RemoteFile, bytes: number, limit: number): FileOutcome {
+    return {
+        relativePath: file.relativePath,
+        status: "too-large",
+        error: `${bytes} bytes is above the ${limit} byte per-file limit`,
+    };
+}
+
 async function writeFile(
     file: RemoteFile,
-    outputDir: string,
-    skipExisting: boolean,
+    options: DownloadOptions,
 ): Promise<FileOutcome> {
     try {
-        const targetPath = join(outputDir, file.relativePath);
-        if (skipExisting && await Bun.file(targetPath).exists()) {
+        const targetPath = joinPath(options.outputDir, file.relativePath);
+        if (options.skipExisting && await options.fs.exists(targetPath)) {
             return { relativePath: file.relativePath, status: "skipped" };
         }
 
+        const limit = options.maxFileBytes;
+        if (limit !== undefined && file.size !== undefined && file.size > limit) {
+            return tooLargeOutcome(file, file.size, limit);
+        }
+
         const bytes = await file.load();
-        await mkdir(dirname(targetPath), { recursive: true });
-        await Bun.write(targetPath, bytes);
+        if (limit !== undefined && bytes.byteLength > limit) {
+            return tooLargeOutcome(file, bytes.byteLength, limit);
+        }
+
+        await options.fs.writeBytes(targetPath, bytes);
         return { relativePath: file.relativePath, status: "downloaded" };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -77,17 +91,13 @@ export async function runDownload(
     plan: DownloadPlan,
     options: DownloadOptions,
 ): Promise<DownloadSummary> {
-    const outputDir = resolve(options.outputDir);
     const outcomes: FileOutcome[] = new Array(plan.files.length);
 
-    let cursor = 0;
     await runPool(
         plan.files,
         options.concurrency,
-        async (file) => {
-            const index = cursor;
-            cursor += 1;
-            outcomes[index] = await writeFile(file, outputDir, options.skipExisting);
+        async (file, index) => {
+            outcomes[index] = await writeFile(file, options);
         },
     );
 
@@ -98,6 +108,7 @@ export async function runDownload(
         outcomes,
         downloaded: outcomes.filter((o) => o.status === "downloaded").length,
         skipped: outcomes.filter((o) => o.status === "skipped").length,
+        tooLarge: outcomes.filter((o) => o.status === "too-large").length,
         failed: outcomes.filter((o) => o.status === "failed").length,
     };
 }

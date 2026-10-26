@@ -10,21 +10,25 @@ sdk = "openai"
 endpoint = "https://openrouter.ai/api/v1"
 api_key = ""
 
+[llm.providers.openrouter.headers]
 [llm.providers.openai]
 sdk = "openai"
 endpoint = ""
 api_key = ""
 
+[llm.providers.openai.headers]
 [llm.providers.anthropic]
 sdk = "anthropic"
 endpoint = ""
 api_key = ""
 
+[llm.providers.anthropic.headers]
 [llm.providers.google]
 sdk = "google"
 endpoint = ""
 api_key = ""
 
+[llm.providers.google.headers]
 [llm.models.general_analysis]
 provider = "openrouter"
 model_name = ""
@@ -53,27 +57,29 @@ retry_delay_ms = 1000
 role = "role_placeholder"
 
 [[analysis_workflows]]
-slug = ""
+slug = "EPF-general-analysis-example"
 model = "general_analysis"
 runs = 1
-output_filename = ""
-prompt = ""
+output_filename = "general-analysis-example-[seed]-[model].epf.md"
+prompt = """Count how many functions and classes are defined in the codebase. 
+Provide a summary of the number of functions and classes, and list their names.
+"""
 
 [[analysis_workflows.input_files_searches]]
-file_glob = ""
+file_glob = "*.{cpp,h}"
 search_directory = "."
 excluded_files = []
 
 [[testing_workflows]]
-slug = ""
+slug = "EPF-testing-example"
 model = "general_analysis"
 runs = 1
-output_filename = ""
+output_filename = "testing-example-[seed]-[model].epf.md"
 setup_commands = []
 cleanup_commands = []
 
 [[testing_workflows.test_cases]]
-name = ""
+name = "Test Case 1"
 work_directory = "."
 single_run_command = ""
 interactive_steps = []

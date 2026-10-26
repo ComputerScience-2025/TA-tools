@@ -24,6 +24,7 @@ import chalk from "chalk";
 
 import { getRemote, listRemotes } from "../download/registry.ts";
 import { runDownload as executeDownload } from "../download/runner.ts";
+import { BunFileSystem } from "../platform/bun/bun-fs.ts";
 import type { DownloadOptions, DownloadPlan, EnvVars, RemoteSource } from "../download/types.ts";
 
 const DEFAULT_CONCURRENCY = 5;
@@ -110,6 +111,7 @@ export async function runDownload(argv: string[]): Promise<void> {
         outputDir: args.values.output,
         skipExisting: args.values["skip-existing"],
         concurrency: resolveConcurrency(args.values.concurrency),
+        fs: new BunFileSystem(),
     };
     const env = buildEnv(remote, args.values.token);
 
@@ -145,6 +147,9 @@ export async function runDownload(argv: string[]): Promise<void> {
             case "skipped":
                 console.log(`${chalk.gray("=")} ${outcome.relativePath} ${chalk.gray("(skipped)")}`);
                 break;
+            case "too-large":
+                console.warn(`${chalk.yellow("!")} ${outcome.relativePath} ${chalk.gray(`(too large: ${outcome.error ?? "unknown limit"})`)}`);
+                break;
             case "failed":
                 console.error(`${chalk.red("✗")} ${outcome.relativePath} — ${outcome.error ?? "unknown error"}`);
                 break;
@@ -153,7 +158,7 @@ export async function runDownload(argv: string[]): Promise<void> {
 
     console.log("");
     console.log(
-        `Done. Downloaded: ${summary.downloaded}, Skipped: ${summary.skipped}, Failed: ${summary.failed}`,
+        `Done. Downloaded: ${summary.downloaded}, Skipped: ${summary.skipped}, Too large: ${summary.tooLarge}, Failed: ${summary.failed}`,
     );
     console.log(`Location: ${resolve(options.outputDir)}`);
 

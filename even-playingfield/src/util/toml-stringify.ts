@@ -31,13 +31,11 @@ import { stringify as smolStringify } from "smol-toml";
  * escaped per the TOML spec.
  *
  * The caller wraps the result directly with `"""` ... `"""` — no leading
- * newline is inserted. Per the TOML spec, a newline immediately after the
- * opening `"""` should be trimmed by parsers, but `Bun.TOML.parse` (which
- * this codebase uses for config loading) does NOT perform that trim. Emitting
- * a leading newline would therefore add a spurious `\n` to the value on
- * re-parse. By emitting the content verbatim, the string round-trips
- * correctly through `Bun.TOML.parse` regardless of whether it starts with
- * a newline.
+ * newline is inserted, and a value that starts with a newline gets that
+ * first newline emitted as the `\n` escape. A *literal* newline immediately
+ * after the opening `"""` is trimmed by spec-compliant parsers (Bun's TOML
+ * parser has trimmed it since Bun 1.4), so emitting one verbatim would lose
+ * the leading newline; the escape survives every parser.
  */
 function escapeMultilineBody(s: string): string {
     let result = s
@@ -50,6 +48,11 @@ function escapeMultilineBody(s: string): string {
             return "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0");
         });
     // \t and \n are left literal — both are valid in multi-line basic strings.
+
+    // Keep a leading newline as an escape (see the comment above).
+    if (result.startsWith("\n")) {
+        result = "\\n" + result.slice(1);
+    }
 
     // Escape any trailing " that would merge with the closing """ delimiter.
     // A trailing " is unescaped iff preceded by an even number of backslashes.

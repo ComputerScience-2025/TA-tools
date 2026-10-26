@@ -1,0 +1,224 @@
+/**
+ * Config loading, driven by the platform abstraction.
+ *
+ * Source resolution order (unchanged from the original CLI implementation):
+ *   1. an explicit source (CLI `--config`, or the web UI's chosen source)
+ *   2. `EPF_CONFIG_URL` from the platform environment
+ *   3. `epf.toml` in the workspace root (the CLI's working directory)
+ *   4. `epf.toml` in the home directory (skipped when the platform has none)
+ *
+ * The version gate and Zod validation also live here, so the CLI and the
+ * browser reject configs for exactly the same reasons.
+ */
+
+import type { ZodError } from "zod";
+
+import { detectConfigVersion } from "./config-migrations.ts";
+import { ConfigSchema, CURRENT_CONFIG_VERSION } from "./config-schema.ts";
+import { CONFIG_URL_ENV_VAR } from "./env-vars.ts";
+import { joinPath } from "../platform/path.ts";
+import type { Config } from "./config-schema.ts";
+import type { Platform } from "../platform/types.ts";
+
+export type { Config };
+export { CONFIG_URL_ENV_VAR };
+
+export const DEFAULT_CONFIG_FILE_NAME = "epf.toml";
+
+/** Where a config came from. `inline` is text supplied directly (web UI). */
+export type ConfigSource =
+    | { kind: "path"; path: string }
+    | { kind: "url"; url: string }
+    | { kind: "inline"; text: string; label: string };
+
+export type ResolvedConfig = {
+    config: Config;
+    /** Kept so `reload` can re-read from the same place. */
+    source: ConfigSource;
+};
+
+export type RawConfig = {
+    obj: Record<string, unknown>;
+    contents: string;
+    source: ConfigSource;
+};
+
+export function configSourceLabel(source: ConfigSource): string {
+    switch (source.kind) {
+        case "path":
+            return source.path;
+        case "url":
+            return source.url;
+        case "inline":
+            return source.label;
+    }
+}
+
+function isHttpUrl(value: string): boolean {
+    return /^https?:\/\//.test(value);
+}
+
+/** Normalize a string (`--config` value, env var) into a {@link ConfigSource}. */
+export function toConfigSource(value: string | ConfigSource): ConfigSource {
+    if (typeof value !== "string") {
+        return value;
+    }
+    const trimmed = value.trim();
+    if (isHttpUrl(trimmed)) {
+        return { kind: "url", url: trimmed };
+    }
+    return { kind: "path", path: trimmed };
+}
+
+/** Validation problems as readable `path: message` lines. */
+export function formatConfigIssues(error: ZodError): string[] {
+    return error.issues.map((issue) => {
+        const path = issue.path.join(".");
+        return path.length > 0 ? `${path}: ${issue.message}` : issue.message;
+    });
+}
+
+export type ConfigValidation =
+    | { ok: true; config: Config }
+    | { ok: false; message: string; issues: string[] };
+
+/**
+ * Version gate plus schema validation for an already-parsed config object.
+ * Shared by the loader and by the web UI's editor so both report the same
+ * problems.
+ */
+export function validateConfigObject(obj: Record<string, unknown>, label: string): ConfigValidation {
+    const version = detectConfigVersion(obj);
+    if (version < CURRENT_CONFIG_VERSION) {
+        return {
+            ok: false,
+            message: `Config version ${version} is outdated (current is ${CURRENT_CONFIG_VERSION}). ` +
+                `Run: even-pf migrate -C ${label}`,
+            issues: [`Config version ${version} is outdated; run 'even-pf migrate -C ${label}'.`],
+        };
+    }
+    if (version > CURRENT_CONFIG_VERSION) {
+        return {
+            ok: false,
+            message: `Config version ${version} is newer than this binary supports (${CURRENT_CONFIG_VERSION}). ` +
+                `Upgrade even-pf.`,
+            issues: [`Config version ${version} is newer than this build supports (${CURRENT_CONFIG_VERSION}).`],
+        };
+    }
+
+    const parsed = ConfigSchema.safeParse(obj);
+    if (!parsed.success) {
+        return {
+            ok: false,
+            message: `Config file is invalid: ${label}`,
+            issues: formatConfigIssues(parsed.error),
+        };
+    }
+    return { ok: true, config: parsed.data as Config };
+}
+
+/** Parse and validate config text without loading or keeping it. */
+export function validateConfigText(platform: Platform, text: string, label = "config"): ConfigValidation {
+    let obj: Record<string, unknown>;
+    try {
+        obj = platform.toml.parse(text);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, message: `TOML parse error in ${label}: ${message}`, issues: [message] };
+    }
+    return validateConfigObject(obj, label);
+}
+
+export async function resolveConfigSource(
+    platform: Platform,
+    override?: string | ConfigSource,
+): Promise<ConfigSource> {
+    if (override !== undefined) {
+        const source = toConfigSource(override);
+        platform.logger.log("info", `Found config from provided source: ${configSourceLabel(source)}`);
+        return source;
+    }
+
+    const fromEnv = platform.env.get(CONFIG_URL_ENV_VAR);
+    if (fromEnv !== undefined && fromEnv.trim().length > 0) {
+        platform.logger.log("info", `Found config from environment variable ${CONFIG_URL_ENV_VAR}`);
+        return toConfigSource(fromEnv.trim());
+    }
+
+    const workspaceCandidate = joinPath(platform.fs.root, DEFAULT_CONFIG_FILE_NAME);
+    if (await platform.fs.exists(workspaceCandidate)) {
+        platform.logger.log("info", "Found config from current directory");
+        return { kind: "path", path: workspaceCandidate };
+    }
+
+    if (platform.homeDir !== undefined) {
+        const homeCandidate = joinPath(platform.homeDir, DEFAULT_CONFIG_FILE_NAME);
+        if (await platform.fs.exists(homeCandidate)) {
+            platform.logger.log("info", "Found config from home directory");
+            return { kind: "path", path: homeCandidate };
+        }
+    }
+
+    throw new Error(`Config file ${DEFAULT_CONFIG_FILE_NAME} not found`);
+}
+
+/** Read a config source and parse it as TOML. No validation happens here. */
+export async function loadRawConfig(platform: Platform, source: ConfigSource): Promise<RawConfig> {
+    let contents: string;
+
+    switch (source.kind) {
+        case "url": {
+            platform.logger.log("info", `Fetching config from URL: ${source.url}`);
+            const response = await fetch(source.url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch config from URL: ${source.url}, status: ${response.status}`);
+            }
+            contents = await response.text();
+            break;
+        }
+        case "inline":
+            contents = source.text;
+            break;
+        case "path": {
+            if (isHttpUrl(source.path)) {
+                return await loadRawConfig(platform, { kind: "url", url: source.path });
+            }
+            platform.logger.log("info", `Loading config from local file: ${source.path}`);
+            contents = await platform.fs.readText(source.path);
+            break;
+        }
+    }
+
+    if (contents.trim().length === 0) {
+        throw new Error(`Config is empty: ${configSourceLabel(source)}`);
+    }
+
+    return { obj: platform.toml.parse(contents), contents, source };
+}
+
+/**
+ * Load and validate a config. Enforces a version gate: outdated configs are
+ * rejected with an instruction to run `even-pf migrate`, newer ones as
+ * requiring a binary upgrade. No automatic migration happens at runtime.
+ */
+export async function loadConfig(
+    platform: Platform,
+    override?: string | ConfigSource,
+): Promise<ResolvedConfig> {
+    platform.logger.log("info", "Loading config");
+
+    const source = await resolveConfigSource(platform, override);
+    const { obj, contents } = await loadRawConfig(platform, source);
+
+    const validation = validateConfigObject(obj, configSourceLabel(source));
+    if (!validation.ok) {
+        for (const issue of validation.issues) {
+            platform.logger.log("error", issue);
+        }
+        platform.logger.log("debug", `Config file contents:\n${contents}`);
+        throw new Error(validation.message);
+    }
+
+    platform.logger.log("info", `Config loaded from ${configSourceLabel(source)}`);
+    return { config: validation.config, source };
+}
