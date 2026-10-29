@@ -57,6 +57,28 @@ output_filename = "[slug].epf.md"
 prompt = "Review it."
 `;
 
+/**
+ * A config written before `[output_viewing]` existed. `detectConfigVersion`
+ * reports every unversioned file as v4, so configs older than v4 reach the
+ * v4 -> v5 migration too and must come out complete.
+ */
+const V4_CONFIG_WITHOUT_OUTPUT_VIEWING = `[vendors.openrouter]
+api_key = "test-key"
+
+[llm.models.general_analysis]
+sdk = "openrouter"
+model_name = "mock-model"
+
+[llm.prompt_replacement]
+role = "grader"
+
+[[analysis_workflows]]
+slug = "demo"
+model = "general_analysis"
+output_filename = "[slug].epf.md"
+prompt = "Review it."
+`;
+
 describe("config documents", () => {
     test("parses current-version TOML without validating it", () => {
         const result = parseConfigDocument("version = 5\n", TOML);
@@ -85,6 +107,43 @@ describe("config documents", () => {
         expect(getAtPath(migrated.raw, ["llm", "providers", "openrouter", "api_key"])).toBe("test-key");
         expect(getAtPath(migrated.raw, ["llm", "models", "general_analysis", "provider"])).toBe("openrouter");
         expect(validateConfigDocument(migrated.raw, "migrated").ok).toBe(true);
+    });
+
+    test("fills in a default output_viewing block when migrating", () => {
+        const parsed = parseConfigDocument(V4_CONFIG_WITHOUT_OUTPUT_VIEWING, TOML);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) {
+            return;
+        }
+        const migrated = migrateConfigDocument(parsed.document.raw);
+        expect(migrated.fromVersion).toBe(4);
+        expect(getAtPath(migrated.raw, ["output_viewing", "mode"])).toBe("webui");
+        expect(getAtPath(migrated.raw, ["output_viewing", "api_port"])).toBe(0);
+        expect(getAtPath(migrated.raw, ["output_viewing", "webui_base_url"]))
+            .toBe("https://ta-tools-dashboard.vercel.app");
+        expect(validateConfigDocument(migrated.raw, "migrated").ok).toBe(true);
+
+        // The migrated document must still validate after being saved and re-read.
+        const roundTripped = parseConfigDocument(serializeConfigDocument(migrated.raw), TOML);
+        expect(roundTripped.ok).toBe(true);
+        if (roundTripped.ok) {
+            expect(roundTripped.document.raw["output_viewing"]).toEqual({
+                mode: "webui",
+                api_port: 0,
+                webui_base_url: "https://ta-tools-dashboard.vercel.app",
+            });
+            expect(validateConfigDocument(roundTripped.document.raw, "round-tripped").ok).toBe(true);
+        }
+    });
+
+    test("keeps an explicit output_viewing block while migrating", () => {
+        const parsed = parseConfigDocument(V4_CONFIG, TOML);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) {
+            return;
+        }
+        const migrated = migrateConfigDocument(parsed.document.raw);
+        expect(getAtPath(migrated.raw, ["output_viewing", "webui_base_url"])).toBe("https://example.test");
     });
 
     test("serializes in a stable field order and keeps multiline prompts", () => {

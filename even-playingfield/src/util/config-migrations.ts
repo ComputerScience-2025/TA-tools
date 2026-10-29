@@ -13,6 +13,7 @@
  *      {@link migrateToCurrent}, which sets `version = step.to` after each step).
  */
 
+import { createDefaultOutputViewing } from "./config-defaults.ts";
 import { CURRENT_CONFIG_VERSION } from "./config-schema.ts";
 
 
@@ -55,6 +56,10 @@ function ensureRecord(obj: RawConfig, key: string): RawConfig {
  *   - `seed` is added to models (left to Zod's default — no value to carry over).
  *   - `reasoning_effort` gains "xhigh" (no migration action needed; existing
  *     values remain valid).
+ *   - `[output_viewing]` is required by the schema and every field has a
+ *     default, so a config that predates the block gets the defaults written in.
+ *     `detectConfigVersion` reports *any* unversioned file as v4, so configs
+ *     older than v4 reach this step too and must end up complete.
  */
 function migrateV4ToV5(obj: RawConfig): RawConfig {
     // 1. vendors.openrouter.api_key -> llm.providers.openrouter
@@ -89,6 +94,13 @@ function migrateV4ToV5(obj: RawConfig): RawConfig {
         }
     }
 
+    // 3. output_viewing: required by the schema, all-defaulted, and absent from
+    // configs written before the block existed. Only fill it in when missing so
+    // an explicit block (even a partial one) is never overwritten.
+    if (obj["output_viewing"] === undefined) {
+        obj["output_viewing"] = createDefaultOutputViewing();
+    }
+
     return obj;
 }
 
@@ -96,8 +108,9 @@ export const MIGRATIONS: Record<number, Migration> = {
     4: {
         to: 5,
         description:
-            "Moves vendors.openrouter.api_key to llm.providers.openrouter, and renames each model's " +
-            "sdk field to provider.",
+            "Moves vendors.openrouter.api_key to llm.providers.openrouter, renames each model's " +
+            "sdk field to provider, and fills in a default [output_viewing] block when the config " +
+            "predates it.",
         migrate: migrateV4ToV5,
     },
 };
