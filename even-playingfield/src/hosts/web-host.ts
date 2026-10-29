@@ -18,10 +18,21 @@ import {
     toConfigSource,
     validateConfigText,
 } from "../util/config-loader.ts";
+import { detectConfigVersion } from "../util/config-migrations.ts";
+import {
+    isTomlFileName,
+    normalizeConfigFileName,
+    normalizeConfigRelativePath,
+} from "../util/config-files.ts";
+import {
+    coerceEditorDraftFile,
+    createEmptyEditorDraftFile,
+    pruneEditorDrafts,
+} from "../util/editor-draft.ts";
 import { planGithubDownload, githubRemote, parseGithubUrl } from "../download/github.ts";
 import { runDownload } from "../download/runner.ts";
 import { createWebPlatform, storageEstimate } from "../platform/web/web-platform.ts";
-import { joinPath, resolvePath } from "../platform/path.ts";
+import { basenamePath, dirnamePath, joinPath, resolvePath } from "../platform/path.ts";
 import { CONFIG_URL_ENV_VAR, GITHUB_PAT_ENV_VAR } from "../util/env-vars.ts";
 import type { CommandResult } from "../command-handler.ts";
 import type { Config, ConfigSource, ConfigValidation } from "../util/config-loader.ts";
@@ -30,6 +41,7 @@ import type { EngineEvent } from "../engine/engine.ts";
 import type { WebPlatform, WebPlatformOptions } from "../platform/web/web-platform.ts";
 import type { WorkspaceOrigin, WorkspaceState } from "../platform/web/web-state.ts";
 import type { WorkflowRunResult } from "../engine/index.ts";
+import type { EditorDraft, EditorDraftFile } from "../util/editor-draft.ts";
 
 const MAX_WORKSPACE_WALK_DEPTH = 32;
 const DOWNLOAD_CONCURRENCY = 5;
@@ -100,6 +112,39 @@ export type UploadSummary = {
     bytes: number;
 };
 
+/** One file in the durable config library. */
+export type HomeConfigFile = {
+    name: string;
+    size: number;
+    mtimeMs: number;
+};
+
+/**
+ * A config read for editing. No schema validation has happened: the editor
+ * must be able to open outdated or invalid configs so the user can fix them.
+ */
+export type OpenedConfigDocument = {
+    source: ConfigSource;
+    text: string;
+    raw: Record<string, unknown>;
+    version: number;
+};
+
+export type SaveConfigOptions = {
+    /** Replace an existing file instead of reporting a conflict. */
+    overwrite?: boolean;
+    /**
+     * Load the written file into the engine (default true). Library actions
+     * such as Duplicate set this false so they do not change the active config.
+     */
+    activate?: boolean;
+};
+
+export type SaveHomeConfigOptions = SaveConfigOptions & {
+    /** Make this the library file used by workspaces without a config. */
+    makeDefault?: boolean;
+};
+
 export type StorageUsage = {
     /** Bytes EPF counts in its own workspaces. */
     used: number;
@@ -115,6 +160,8 @@ export class WebEPF {
     private readonly options: WebEPFOptions;
     private engine: Engine | null = null;
     private configSource: ConfigSource | null = null;
+    /** Source the last load/open attempt targeted, even when it failed. */
+    private attemptedSource: ConfigSource | null = null;
     private configError: string | null = null;
     private readonly engineListeners: Set<(engine: Engine | null) => void> = new Set();
     private unsubscribeEngineEvents: (() => void) | null = null;
@@ -151,10 +198,12 @@ export class WebEPF {
             }
         }
 
-        const source = this.options.configSource ?? await this.detectConfigSource();
+        const source = this.options.configSource ?? await this.findConfigSource();
         if (source !== null) {
+            const normalized = this.normalizeSource(source);
+            this.attemptedSource = normalized;
             try {
-                await this.loadConfigSource(source);
+                await this.loadConfigSource(normalized);
             } catch (error) {
                 this.configError = error instanceof Error ? error.message : String(error);
                 this.web.logs.log("warn", `Could not load the config automatically: ${this.configError}`);
@@ -243,6 +292,15 @@ export class WebEPF {
         return this.configSource;
     }
 
+    /**
+     * The source the last load attempt targeted. Unlike {@link getConfigSource}
+     * this is set even when validation failed, so the editor can offer to open
+     * an invalid config and let the user fix it.
+     */
+    getAttemptedConfigSource(): ConfigSource | null {
+        return this.attemptedSource;
+    }
+
     getConfigError(): string | null {
         return this.configError;
     }
@@ -276,17 +334,30 @@ export class WebEPF {
 
     // --- Config ---
 
+    /**
+     * Resolve a relative path against the active workspace and turn a path
+     * that is really an HTTP URL into a URL source.
+     */
+    private normalizeSource(source: ConfigSource): ConfigSource {
+        if (source.kind !== "path") {
+            return source;
+        }
+        if (/^https?:\/\//.test(source.path)) {
+            return { kind: "url", url: source.path };
+        }
+        return { kind: "path", path: resolvePath(this.web.platform.fs.root, source.path) };
+    }
+
     /** Load a config from a source and make it the active one. Throws when invalid. */
     async loadConfigSource(source: ConfigSource): Promise<Config> {
         this.assertWritable("Loading a config");
-        const resolved = await loadConfig(this.web.platform, source);
+        this.assertIdle("Loading a config");
+        const normalized = this.normalizeSource(source);
+        this.attemptedSource = normalized;
+        const resolved = await loadConfig(this.web.platform, normalized);
         // Pin relative file sources to the workspace they were read from, so a
         // later reload does not silently resolve against a different workspace.
-        const resolvedSource: ConfigSource = resolved.source.kind === "path"
-            ? (/^https?:\/\//.test(resolved.source.path)
-                ? { kind: "url", url: resolved.source.path }
-                : { kind: "path", path: resolvePath(this.web.platform.fs.root, resolved.source.path) })
-            : resolved.source;
+        const resolvedSource = this.normalizeSource(resolved.source);
         this.configSource = resolvedSource;
         this.configError = null;
         this.configTextCache = resolvedSource.kind === "inline"
@@ -299,6 +370,28 @@ export class WebEPF {
             this.web.state.touchWorkspace(workspace.path);
         }
         return resolved.config;
+    }
+
+    /**
+     * Read a config for editing without validating it. Parse errors still
+     * throw, but an outdated schema or missing fields are left for the editor
+     * (and the backend validator) to report.
+     */
+    async openConfigDocument(source: ConfigSource): Promise<OpenedConfigDocument> {
+        const normalized = this.normalizeSource(source);
+        if (normalized.kind === "path") {
+            const info = await this.web.platform.fs.stat(normalized.path);
+            if (info === null || info.kind !== "file") {
+                throw new Error(`Config file not found: ${normalized.path}`);
+            }
+        }
+        const raw = await loadRawConfig(this.web.platform, normalized);
+        return {
+            source: normalized,
+            text: raw.contents,
+            raw: raw.obj,
+            version: detectConfigVersion(raw.obj),
+        };
     }
 
     /**
@@ -328,6 +421,7 @@ export class WebEPF {
             }
         }
         this.configSource = null;
+        this.attemptedSource = null;
         this.configError = null;
         this.configTextCache = null;
         this.setEngine(null);
@@ -379,20 +473,263 @@ export class WebEPF {
         }
     }
 
-    /** Write config text into the active workspace and adopt it as the source. */
-    async saveConfigText(text: string, relativePath: string = DEFAULT_CONFIG_FILE_NAME): Promise<ConfigSource> {
-        this.assertWritable("Saving a config");
-        const validation = this.validateConfigText(text, relativePath);
+    private assertValidForSaving(text: string, label: string): void {
+        const validation = this.validateConfigText(text, label);
         if (!validation.ok) {
             throw new Error(validation.issues.length > 0 ? validation.issues.join("\n") : validation.message);
         }
+    }
+
+    /**
+     * Config files a save may overwrite: anything in the durable library, or
+     * anywhere inside the active workspace.
+     */
+    private assertConfigPathWritable(path: string): void {
+        const workspace = this.getActiveWorkspace();
+        if (isPathWithin(path, this.web.homeDir)) {
+            return;
+        }
+        if (workspace !== null && isPathWithin(path, workspace.path)) {
+            return;
+        }
+        throw new Error(`Refusing to write a config outside the library or the active workspace: ${path}`);
+    }
+
+    /** Write config text to an explicit file and make it the engine source. */
+    async saveConfigToPath(path: string, text: string): Promise<ConfigSource> {
+        this.assertWritable("Saving a config");
+        this.assertIdle("Saving a config");
+        this.assertConfigPathWritable(path);
+        this.assertValidForSaving(text, path);
+        await this.web.storageFs.writeText(path, text);
+        const next: ConfigSource = { kind: "path", path };
+        await this.loadConfigSource(next);
+        return next;
+    }
+
+    /** Write config text back to the engine's current file. */
+    async saveConfigToCurrentSource(text: string): Promise<ConfigSource> {
+        const source = this.configSource;
+        if (source === null || source.kind !== "path") {
+            throw new Error("The current config is not a file. Use Save as instead.");
+        }
+        return await this.saveConfigToPath(source.path, text);
+    }
+
+    /** Write a config into the active workspace, optionally under a new name. */
+    async saveConfigToWorkspace(
+        text: string,
+        relativePath: string = DEFAULT_CONFIG_FILE_NAME,
+        options: SaveConfigOptions = {},
+    ): Promise<ConfigSource> {
+        this.assertWritable("Saving a config");
+        this.assertIdle("Saving a config");
+        const name = normalizeConfigRelativePath(relativePath);
         const workspace = this.requireActiveWorkspace();
-        const path = this.resolveInWorkspace(workspace.path, relativePath);
+        const path = this.resolveInWorkspace(workspace.path, name);
+        if (!options.overwrite && await this.web.storageFs.exists(path)) {
+            throw new Error(`"${name}" already exists in this workspace. Choose another name or overwrite it.`);
+        }
+        this.assertValidForSaving(text, name);
         await this.web.storageFs.writeText(path, text);
         const source: ConfigSource = { kind: "path", path };
-        await this.loadConfigSource(source);
+        if (options.activate !== false) {
+            await this.loadConfigSource(source);
+        }
         return source;
     }
+
+    /** Legacy entry point used by older host consumers. */
+    async saveConfigText(text: string, relativePath: string = DEFAULT_CONFIG_FILE_NAME): Promise<ConfigSource> {
+        return await this.saveConfigToWorkspace(text, relativePath, { overwrite: true });
+    }
+
+    // --- Durable config library ------------------------------------------------
+
+    getHomeDir(): string {
+        return this.web.homeDir;
+    }
+
+    getDefaultHomeConfig(): string | null {
+        return this.web.state.getDefaultHomeConfig();
+    }
+
+    /** Library files, default first. */
+    async listHomeConfigs(): Promise<HomeConfigFile[]> {
+        let entries;
+        try {
+            entries = await this.web.storageFs.list(this.web.homeDir);
+        } catch {
+            return [];
+        }
+        const files = entries
+            .filter((entry) => entry.kind === "file" && isTomlFileName(entry.name) && !entry.name.startsWith("."))
+            .map((entry) => ({ name: entry.name, size: entry.size, mtimeMs: entry.mtimeMs }));
+        const defaultName = this.getDefaultHomeConfig();
+        files.sort((a, b) => {
+            if (a.name === defaultName) {
+                return -1;
+            }
+            if (b.name === defaultName) {
+                return 1;
+            }
+            return a.name.localeCompare(b.name);
+        });
+        return files;
+    }
+
+    async readHomeConfig(name: string): Promise<string> {
+        return await this.web.storageFs.readText(this.resolveHomeConfigPath(name));
+    }
+
+    /** Save a config into the durable library. */
+    async saveConfigToHome(
+        text: string,
+        name: string,
+        options: SaveHomeConfigOptions = {},
+    ): Promise<ConfigSource> {
+        this.assertWritable("Saving a config");
+        this.assertIdle("Saving a config");
+        const fileName = normalizeConfigFileName(name);
+        const path = joinPath(this.web.homeDir, fileName);
+        if (!options.overwrite && await this.web.storageFs.exists(path)) {
+            throw new Error(`"${fileName}" already exists in the config library. Choose another name or overwrite it.`);
+        }
+        this.assertValidForSaving(text, fileName);
+        await this.web.storageFs.mkdir(this.web.homeDir);
+        await this.web.storageFs.writeText(path, text);
+        if (options.makeDefault === true) {
+            this.web.state.setDefaultHomeConfig(fileName);
+        }
+        const source: ConfigSource = { kind: "path", path };
+        if (options.activate !== false) {
+            await this.loadConfigSource(source);
+        }
+        return source;
+    }
+
+    async deleteHomeConfig(name: string): Promise<void> {
+        this.assertWritable("Deleting a config");
+        this.assertIdle("Deleting a config");
+        const fileName = normalizeConfigFileName(name);
+        const path = joinPath(this.web.homeDir, fileName);
+        if (!await this.web.storageFs.exists(path)) {
+            throw new Error(`"${fileName}" does not exist in the config library.`);
+        }
+        await this.web.storageFs.remove(path);
+        await this.deleteEditorDraftKey(`path:${path}`);
+        if (this.getDefaultHomeConfig() === fileName) {
+            this.web.state.setDefaultHomeConfig(null);
+        }
+        const current = this.configSource;
+        if (current?.kind === "path" && current.path === path) {
+            this.forgetLoadedConfig();
+        }
+        const attempted = this.attemptedSource;
+        if (attempted?.kind === "path" && attempted.path === path) {
+            this.attemptedSource = null;
+        }
+        this.web.logs.log("info", `Removed config library file '${fileName}'.`);
+    }
+
+    /** Select the library file used when a workspace has no config. */
+    async setDefaultHomeConfig(name: string | null): Promise<void> {
+        this.assertWritable("Changing the default config");
+        if (name === null) {
+            this.web.state.setDefaultHomeConfig(null);
+            return;
+        }
+        const fileName = normalizeConfigFileName(name);
+        const path = joinPath(this.web.homeDir, fileName);
+        if (!await this.web.storageFs.exists(path)) {
+            throw new Error(`"${fileName}" does not exist in the config library.`);
+        }
+        this.web.state.setDefaultHomeConfig(fileName);
+    }
+
+    /** Copy a library config into the active workspace. */
+    async copyHomeConfigToWorkspace(
+        name: string,
+        targetName: string = DEFAULT_CONFIG_FILE_NAME,
+        options: SaveConfigOptions = {},
+    ): Promise<ConfigSource> {
+        const text = await this.readHomeConfig(name);
+        return await this.saveConfigToWorkspace(text, targetName, options);
+    }
+
+    // --- Rename ---------------------------------------------------------------
+
+    async renameHomeConfig(oldName: string, newName: string): Promise<ConfigSource> {
+        const oldPath = this.resolveHomeConfigPath(normalizeConfigFileName(oldName));
+        const newFileName = normalizeConfigFileName(newName);
+        return await this.renameConfigFile(oldPath, newFileName);
+    }
+
+    async renameWorkspaceConfig(relativePath: string, newName: string): Promise<ConfigSource> {
+        const workspace = this.requireActiveWorkspace();
+        const path = this.resolveInWorkspace(workspace.path, normalizeConfigRelativePath(relativePath));
+        const newFileName = normalizeConfigFileName(newName);
+        return await this.renameConfigFile(path, newFileName);
+    }
+
+    /**
+     * Rename a config file in place (same directory, flat name). If the file is
+     * the loaded source or the library default, the pointers follow it.
+     */
+    async renameConfigFile(path: string, newName: string): Promise<ConfigSource> {
+        this.assertWritable("Renaming a config");
+        this.assertIdle("Renaming a config");
+        this.assertConfigPathWritable(path);
+        const info = await this.web.storageFs.stat(path);
+        if (info === null || info.kind !== "file") {
+            throw new Error(`Config file not found: ${path}`);
+        }
+        const fileName = normalizeConfigFileName(newName);
+        const target = joinPath(dirnamePath(path), fileName);
+        if (target === path) {
+            return { kind: "path", path };
+        }
+        if (await this.web.storageFs.exists(target)) {
+            throw new Error(`"${fileName}" already exists in that folder.`);
+        }
+        const text = await this.web.storageFs.readText(path);
+        await this.web.storageFs.writeText(target, text);
+        await this.web.storageFs.remove(path);
+
+        const previousName = basenamePath(path);
+        if (isPathWithin(path, this.web.homeDir) && this.getDefaultHomeConfig() === previousName) {
+            this.web.state.setDefaultHomeConfig(fileName);
+        }
+
+        const current = this.configSource;
+        const wasCurrent = current?.kind === "path" && current.path === path;
+        const next: ConfigSource = { kind: "path", path: target };
+        if (wasCurrent) {
+            this.configSource = next;
+            this.configTextCache = null;
+            this.rememberConfigSource(next);
+        }
+        const attempted = this.attemptedSource;
+        if (attempted?.kind === "path" && attempted.path === path) {
+            this.attemptedSource = next;
+        }
+        const stored = this.web.state.getStoredConfigSource();
+        if (stored?.kind === "path" && stored.path === path) {
+            this.web.state.setStoredConfigSource({ kind: "path", path: target });
+        }
+        await this.moveEditorDraftKey(`path:${path}`, `path:${target}`);
+        if (wasCurrent) {
+            await this.loadConfigSource(next);
+        }
+        this.web.logs.log("info", `Renamed config '${previousName}' to '${fileName}'.`);
+        return next;
+    }
+
+    private resolveHomeConfigPath(name: string): string {
+        return joinPath(this.web.homeDir, normalizeConfigFileName(name));
+    }
+
+    // --- Config discovery -----------------------------------------------------
 
     /** Config files present in a workspace (defaults to the active one). */
     async detectConfigCandidates(workspacePath?: string): Promise<string[]> {
@@ -409,10 +746,52 @@ export class WebEPF {
         return found;
     }
 
-    /** Look for a config through the environment and the active workspace. */
-    private async detectConfigSource(): Promise<ConfigSource | null> {
-        // A previously used source wins if it is still there, so a reload keeps
-        // the workspace's config instead of falling back to the active workspace.
+    /**
+     * Every TOML file a user may open from the workspace, including custom
+     * names. Only the priority candidates are auto-adopted; this broader list
+     * is for the picker.
+     */
+    async listWorkspaceConfigFiles(workspacePath?: string): Promise<string[]> {
+        const workspace = workspacePath ?? this.getActiveWorkspace()?.path;
+        if (workspace === undefined) {
+            return [];
+        }
+        const found = new Set<string>();
+        try {
+            const entries = await this.web.storageFs.list(workspace);
+            for (const entry of entries) {
+                if (entry.kind === "file" && isTomlFileName(entry.name) && !entry.name.startsWith(".")) {
+                    found.add(entry.name);
+                }
+            }
+            const evalDir = joinPath(workspace, "eval");
+            if (await this.web.storageFs.exists(evalDir)) {
+                const evalEntries = await this.web.storageFs.list(evalDir);
+                for (const entry of evalEntries) {
+                    if (entry.kind === "file" && isTomlFileName(entry.name) && !entry.name.startsWith(".")) {
+                        found.add(`eval/${entry.name}`);
+                    }
+                }
+            }
+        } catch {
+            return [];
+        }
+        const priority = new Map(CONFIG_CANDIDATE_NAMES.map((name, index) => [name, index]));
+        return [...found].sort((a, b) => {
+            const aPriority = priority.get(a) ?? CONFIG_CANDIDATE_NAMES.length;
+            const bPriority = priority.get(b) ?? CONFIG_CANDIDATE_NAMES.length;
+            if (aPriority !== bPriority) {
+                return aPriority - bPriority;
+            }
+            return a.localeCompare(b);
+        });
+    }
+
+    /**
+     * Find the config a fresh session should adopt: stored source, environment,
+     * active workspace, then the durable library.
+     */
+    async findConfigSource(): Promise<ConfigSource | null> {
         const stored = this.web.state.getStoredConfigSource();
         if (stored !== null) {
             if (stored.kind === "url") {
@@ -428,16 +807,115 @@ export class WebEPF {
         if (fromEnv !== undefined && fromEnv.trim().length > 0) {
             return toConfigSource(fromEnv.trim());
         }
+
         const workspace = this.getActiveWorkspace();
-        if (workspace === null) {
+        if (workspace !== null) {
+            const candidates = await this.detectConfigCandidates(workspace.path);
+            const first = candidates[0];
+            if (first !== undefined) {
+                return { kind: "path", path: joinPath(workspace.path, first) };
+            }
+        }
+
+        return await this.findHomeConfigSource();
+    }
+
+    /** The durable library's default config, if one can be chosen unambiguously. */
+    private async findHomeConfigSource(): Promise<ConfigSource | null> {
+        const home = await this.listHomeConfigs();
+        if (home.length === 0) {
             return null;
         }
-        const candidates = await this.detectConfigCandidates(workspace.path);
-        const first = candidates[0];
-        if (first !== undefined) {
-            return { kind: "path", path: joinPath(workspace.path, first) };
+        const defaultName = this.getDefaultHomeConfig();
+        const chosen = defaultName !== null && home.some((file) => file.name === defaultName)
+            ? defaultName
+            : home.some((file) => file.name === DEFAULT_CONFIG_FILE_NAME)
+                ? DEFAULT_CONFIG_FILE_NAME
+                : home.length === 1
+                    ? home[0]!.name
+                    : null;
+        return chosen === null ? null : { kind: "path", path: joinPath(this.web.homeDir, chosen) };
+    }
+
+    // --- Editor drafts ---------------------------------------------------------
+
+    private get draftsPath(): string {
+        return joinPath(this.web.homeDir, ".editor", "drafts.json");
+    }
+
+    private async readDraftFile(): Promise<EditorDraftFile> {
+        try {
+            if (!await this.web.storageFs.exists(this.draftsPath)) {
+                return createEmptyEditorDraftFile();
+            }
+            const text = await this.web.storageFs.readText(this.draftsPath);
+            return coerceEditorDraftFile(JSON.parse(text) as unknown);
+        } catch {
+            return createEmptyEditorDraftFile();
         }
-        return null;
+    }
+
+    private async writeDraftFile(file: EditorDraftFile): Promise<void> {
+        await this.web.storageFs.writeText(this.draftsPath, JSON.stringify(file, null, 2));
+    }
+
+    private async deleteEditorDraftKey(sourceKey: string): Promise<void> {
+        try {
+            const file = await this.readDraftFile();
+            if (!Object.prototype.hasOwnProperty.call(file.drafts, sourceKey)) {
+                return;
+            }
+            delete file.drafts[sourceKey];
+            await this.writeDraftFile(file);
+        } catch {
+            // Draft cleanup is best-effort; the file operation already succeeded.
+        }
+    }
+
+    /** Keep a stale draft attached to its file when the file is renamed. */
+    private async moveEditorDraftKey(oldKey: string, newKey: string): Promise<void> {
+        if (oldKey === newKey) {
+            return;
+        }
+        try {
+            const file = await this.readDraftFile();
+            const draft = file.drafts[oldKey];
+            if (draft === undefined) {
+                return;
+            }
+            delete file.drafts[oldKey];
+            file.drafts[newKey] = { ...draft, sourceKey: newKey };
+            await this.writeDraftFile(file);
+        } catch {
+            // Draft cleanup is best-effort.
+        }
+    }
+
+    async readEditorDrafts(): Promise<EditorDraftFile> {
+        return await this.readDraftFile();
+    }
+
+    async saveEditorDraft(draft: EditorDraft): Promise<void> {
+        this.assertWritable("Saving an editor draft");
+        const file = await this.readDraftFile();
+        file.drafts[draft.sourceKey] = draft;
+        pruneEditorDrafts(file);
+        await this.web.storageFs.writeText(this.draftsPath, JSON.stringify(file, null, 2));
+    }
+
+    async deleteEditorDraft(sourceKey: string): Promise<void> {
+        this.assertWritable("Deleting an editor draft");
+        const file = await this.readDraftFile();
+        if (!Object.prototype.hasOwnProperty.call(file.drafts, sourceKey)) {
+            return;
+        }
+        delete file.drafts[sourceKey];
+        await this.web.storageFs.writeText(this.draftsPath, JSON.stringify(file, null, 2));
+    }
+
+    async clearEditorDrafts(): Promise<void> {
+        this.assertWritable("Clearing editor drafts");
+        await this.web.storageFs.writeText(this.draftsPath, JSON.stringify(createEmptyEditorDraftFile(), null, 2));
     }
 
     // --- Workspaces ---
@@ -488,12 +966,17 @@ export class WebEPF {
         const wasActive = this.web.state.get().activeWorkspace === workspace.path;
         const configInWorkspace = this.configSource?.kind === "path"
             && (this.configSource.path === workspace.path || this.configSource.path.startsWith(`${workspace.path}/`));
+        const attemptedInWorkspace = this.attemptedSource?.kind === "path"
+            && (this.attemptedSource.path === workspace.path || this.attemptedSource.path.startsWith(`${workspace.path}/`));
 
         await this.web.storageFs.remove(workspace.path, { recursive: true });
         this.web.state.removeWorkspace(workspace.path);
         const stored = this.web.state.getStoredConfigSource();
         if (stored !== null && stored.kind === "path" && stored.path.startsWith(`${workspace.path}/`)) {
             this.web.state.setStoredConfigSource(null);
+        }
+        if (attemptedInWorkspace) {
+            this.attemptedSource = null;
         }
         if (configInWorkspace) {
             // The file the engine reloads from no longer exists; do not leave a
@@ -610,6 +1093,21 @@ export class WebEPF {
                 this.web.logs.log("warn", `Could not load the fetched config '${first}': ${configError}`);
                 if (!this.hasConfig()) {
                     this.configError = configError;
+                }
+            }
+        }
+
+        // A repository without a config, or an upload into a fresh workspace,
+        // still needs something to run. Fall back to the durable library.
+        if (!this.hasConfig()) {
+            const homeSource = await this.findHomeConfigSource();
+            if (homeSource !== null) {
+                try {
+                    await this.loadConfigSource(homeSource);
+                    configLoaded = homeSource.kind === "path" ? basenamePath(homeSource.path) : null;
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    this.web.logs.log("warn", `Could not load the library config: ${message}`);
                 }
             }
         }
@@ -859,6 +1357,12 @@ export class WebEPF {
         }
         return this.engine;
     }
+}
+
+/** True when `path` is `root` or a child of it (POSIX path comparison). */
+function isPathWithin(path: string, root: string): boolean {
+    const normalizedRoot = root.endsWith("/") ? root.slice(0, -1) : root;
+    return path === normalizedRoot || path.startsWith(`${normalizedRoot}/`);
 }
 
 function workspaceSlug(label: string): string {

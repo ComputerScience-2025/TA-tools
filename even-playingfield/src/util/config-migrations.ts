@@ -20,7 +20,15 @@ type RawConfig = Record<string, unknown>;
 
 export type Migration = {
     to: number;
+    /** Shown by the browser editor and the CLI before/after migrating. */
+    description: string;
     migrate: (obj: RawConfig) => RawConfig;
+};
+
+export type MigrationStep = {
+    from: number;
+    to: number;
+    description: string;
 };
 
 function isRecord(value: unknown): value is RawConfig {
@@ -85,8 +93,33 @@ function migrateV4ToV5(obj: RawConfig): RawConfig {
 }
 
 export const MIGRATIONS: Record<number, Migration> = {
-    4: { to: 5, migrate: migrateV4ToV5 },
+    4: {
+        to: 5,
+        description:
+            "Moves vendors.openrouter.api_key to llm.providers.openrouter, and renames each model's " +
+            "sdk field to provider.",
+        migrate: migrateV4ToV5,
+    },
 };
+
+/**
+ * Human-readable migration path from `from` to `to` (defaults to the current
+ * schema version). Throws when a step is missing, exactly like
+ * {@link migrateToCurrent}.
+ */
+export function migrationSteps(from: number, to: number = CURRENT_CONFIG_VERSION): MigrationStep[] {
+    const steps: MigrationStep[] = [];
+    let current = from;
+    while (current < to) {
+        const step = MIGRATIONS[current];
+        if (!step) {
+            throw new Error(`No migration registered from config version ${current}`);
+        }
+        steps.push({ from: current, to: step.to, description: step.description });
+        current = step.to;
+    }
+    return steps;
+}
 
 /**
  * Determine the schema version of a raw parsed config. Config files produced

@@ -3,13 +3,33 @@
 </svelte:head>
 
 <script lang="ts">
-    import {GITHUB_PAT} from "$lib/stores";
+    import {darkMode, GITHUB_PAT} from "$lib/stores";
 
     const CLASSIC_TOKEN_CREATION_URL = "https://github.com/settings/tokens/new?description=TA%20Dashboard&scopes=repo";
 </script>
 
 <h1 class="title is-1">Settings</h1>
 <p>All changes are saved automatically, instead please refresh the page to make sure the singletons are initialized with the latest parameters</p>
+
+<hr>
+
+<section>
+    <h2 class="title is-2">Appearance</h2>
+
+    <label class="checkbox" for="dark-mode-toggle">
+        <input
+            type="checkbox"
+            id="dark-mode-toggle"
+            bind:checked={$darkMode}
+            class="mr-2"
+        />
+        Dark mode
+    </label>
+
+    <p class="is-size-7 has-text-grey mt-2">
+        Applies to every page in the dashboard.
+    </p>
+</section>
 
 <hr>
 

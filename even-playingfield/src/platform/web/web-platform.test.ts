@@ -42,7 +42,8 @@ describe("createWebPlatform", () => {
         expect(web.persistent).toBe(false);
         expect(web.soleOwner).toBe(true);
         expect(web.platform.fs).toBe(web.fs);
-        expect(web.platform.homeDir).toBeUndefined();
+        expect(web.platform.homeDir).toBe("/platform-test/home");
+        expect(web.homeDir).toBe("/platform-test/home");
 
         await web.fs.writeText("workspaces/ws-1/src/a.cs", "class A {}");
         expect(await web.fs.readText("workspaces/ws-1/src/a.cs")).toBe("class A {}");

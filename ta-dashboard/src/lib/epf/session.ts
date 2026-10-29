@@ -17,12 +17,24 @@ import { COMMAND_NAMES } from "$epf/command-handler.ts";
 import { ENV_VARS } from "$epf/util/env-vars.ts";
 import { toConfigSource } from "$epf/util/config-loader.ts";
 
-import type { WebEPF, FetchSourceRequest, FetchSourceSummary, StorageUsage, UploadedFile, WorkspaceFile } from "$epf/hosts/web-host.ts";
+import type {
+	WebEPF,
+	FetchSourceRequest,
+	FetchSourceSummary,
+	HomeConfigFile,
+	OpenedConfigDocument,
+	SaveConfigOptions,
+	SaveHomeConfigOptions,
+	StorageUsage,
+	UploadedFile,
+	WorkspaceFile
+} from "$epf/hosts/web-host.ts";
 import type { CommandResult } from "$epf/command-handler.ts";
 import type { Engine, WorkflowRunResult } from "$epf/engine/engine.ts";
 import type { LogEntry } from "$epf/platform/types.ts";
 import type { StorageSettings, WorkspaceOrigin, WorkspaceState } from "$epf/platform/web/web-state.ts";
 import type { ConfigSource, ConfigValidation } from "$epf/util/config-loader.ts";
+import type { EditorDraft, EditorDraftFile } from "$epf/util/editor-draft.ts";
 import type { ResultFileContent, ResultFileEntry } from "$lib/results/file-sources";
 
 const LOG_LIMIT = 2000;
@@ -48,9 +60,13 @@ class EpfSession {
 	readonly workspaces = writable<WorkspaceState[]>([]);
 	readonly activeWorkspace = writable<WorkspaceState | null>(null);
 	readonly configLoaded = writable(false);
+	readonly configSource = writable<ConfigSource | null>(null);
+	readonly attemptedConfigSource = writable<ConfigSource | null>(null);
 	readonly configSourceLabel = writable<string | null>(null);
 	readonly configText = writable("");
 	readonly configIssues = writable<string[]>([]);
+	readonly homeConfigs = writable<HomeConfigFile[]>([]);
+	readonly defaultHomeConfig = writable<string | null>(null);
 	readonly files = writable<WorkspaceFile[]>([]);
 	readonly usage = writable<StorageUsage | null>(null);
 	readonly lastResults = writable<WorkflowRunResult[]>([]);
@@ -199,8 +215,20 @@ class EpfSession {
 	// --- Refresh helpers ---
 
 	async refreshAll(): Promise<void> {
-		await Promise.all([this.refreshWorkspaces(), this.refreshOutputs(), this.refreshUsage(), this.refreshConfig()]);
+		await Promise.all([
+			this.refreshWorkspaces(),
+			this.refreshOutputs(),
+			this.refreshUsage(),
+			this.refreshConfig(),
+			this.refreshHomeConfigs()
+		]);
 		this.refreshEnvValues();
+	}
+
+	async refreshHomeConfigs(): Promise<void> {
+		const epf = await this.requireSession();
+		this.homeConfigs.set(await epf.listHomeConfigs());
+		this.defaultHomeConfig.set(epf.getDefaultHomeConfig());
 	}
 
 	refreshEnvValues(): void {
@@ -233,6 +261,8 @@ class EpfSession {
 		const text = await epf.getConfigText(options);
 		this.configLoaded.set(epf.hasConfig());
 		const source = epf.getConfigSource();
+		this.configSource.set(source);
+		this.attemptedConfigSource.set(epf.getAttemptedConfigSource());
 		this.configSourceLabel.set(source === null ? null : describeSource(source));
 		if (text !== null) {
 			this.configText.set(text);
@@ -266,15 +296,15 @@ class EpfSession {
 
 	validateConfigText(text: string): ConfigValidation {
 		if (this.epf === null) {
-			return { ok: false, message: "Session is still starting.", issues: [] };
+			return { ok: false, message: "Session is still starting.", issues: [], structuredIssues: [] };
 		}
 		return this.epf.validateConfigText(text, "pasted config");
 	}
 
-	async applyConfigText(text: string): Promise<void> {
+	async applyConfigText(text: string, label = "session config"): Promise<void> {
 		const epf = await this.ensure();
 		await this.withBusy(async () => {
-			await epf.applyConfigText(text, "pasted config");
+			await epf.applyConfigText(text, label);
 		});
 		await this.refreshConfig();
 	}
@@ -309,6 +339,133 @@ class EpfSession {
 	async detectWorkspaceConfigs(): Promise<string[]> {
 		const epf = await this.ensure();
 		return await epf.detectConfigCandidates();
+	}
+
+	/** Every TOML file in the active workspace, for the editor's picker. */
+	async listWorkspaceConfigFiles(): Promise<string[]> {
+		const epf = await this.ensure();
+		return await epf.listWorkspaceConfigFiles();
+	}
+
+	/** Read a config for editing without applying it to the engine. */
+	async openConfigDocument(source: ConfigSource): Promise<OpenedConfigDocument> {
+		const epf = await this.ensure();
+		return await epf.openConfigDocument(source);
+	}
+
+	/** The source a fresh page would pick (workspace or library). */
+	async findConfigSource(): Promise<ConfigSource | null> {
+		const epf = await this.ensure();
+		return await epf.findConfigSource();
+	}
+
+	getHomeDir(): string {
+		return this.epf?.getHomeDir() ?? "";
+	}
+
+	async readHomeConfig(name: string): Promise<string> {
+		const epf = await this.ensure();
+		return await epf.readHomeConfig(name);
+	}
+
+	async saveConfigToPath(path: string, text: string): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.saveConfigToPath(path, text));
+		await this.refreshAll();
+		return source;
+	}
+
+	async saveConfigToCurrentSource(text: string): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.saveConfigToCurrentSource(text));
+		await this.refreshAll();
+		return source;
+	}
+
+	async saveConfigToWorkspace(
+		text: string,
+		name: string,
+		options: SaveConfigOptions = {}
+	): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.saveConfigToWorkspace(text, name, options));
+		await this.refreshAll();
+		return source;
+	}
+
+	async saveConfigToHome(
+		text: string,
+		name: string,
+		options: SaveHomeConfigOptions = {}
+	): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.saveConfigToHome(text, name, options));
+		await this.refreshAll();
+		return source;
+	}
+
+	async deleteHomeConfig(name: string): Promise<void> {
+		const epf = await this.ensure();
+		await this.withBusy(async () => await epf.deleteHomeConfig(name));
+		await this.refreshAll();
+	}
+
+	async setDefaultHomeConfig(name: string | null): Promise<void> {
+		const epf = await this.ensure();
+		await this.withBusy(async () => await epf.setDefaultHomeConfig(name));
+		await this.refreshHomeConfigs();
+	}
+
+	async renameConfigFile(path: string, newName: string): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.renameConfigFile(path, newName));
+		await this.refreshAll();
+		return source;
+	}
+
+	async renameHomeConfig(oldName: string, newName: string): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.renameHomeConfig(oldName, newName));
+		await this.refreshAll();
+		return source;
+	}
+
+	async renameWorkspaceConfig(relativePath: string, newName: string): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.renameWorkspaceConfig(relativePath, newName));
+		await this.refreshAll();
+		return source;
+	}
+
+	async copyHomeConfigToWorkspace(
+		name: string,
+		targetName = "epf.toml",
+		options: SaveConfigOptions = {}
+	): Promise<ConfigSource> {
+		const epf = await this.ensure();
+		const source = await this.withBusy(async () => await epf.copyHomeConfigToWorkspace(name, targetName, options));
+		await this.refreshAll();
+		return source;
+	}
+
+	async readEditorDrafts(): Promise<EditorDraftFile> {
+		const epf = await this.ensure();
+		return await epf.readEditorDrafts();
+	}
+
+	async saveEditorDraft(draft: EditorDraft): Promise<void> {
+		const epf = await this.ensure();
+		await epf.saveEditorDraft(draft);
+	}
+
+	async deleteEditorDraft(sourceKey: string): Promise<void> {
+		const epf = await this.ensure();
+		await epf.deleteEditorDraft(sourceKey);
+	}
+
+	async clearEditorDrafts(): Promise<void> {
+		const epf = await this.ensure();
+		await epf.clearEditorDrafts();
 	}
 
 	getStorageSettings(): StorageSettings | null {

@@ -574,3 +574,157 @@ search_directory = "src"
         expect(await epf.listFiles(second.workspace.path)).toEqual([]);
     });
 });
+
+describe("config library and editor support", () => {
+    test("opens invalid and outdated configs without loading them", async () => {
+        const workspace = epf.requireActiveWorkspace();
+        const path = `${workspace.path}/broken.toml`;
+        await epf.web.storageFs.writeText(
+            path,
+            'version = 5\n[output_viewing]\nmode = "not-a-mode"\n',
+        );
+
+        const document = await epf.openConfigDocument({ kind: "path", path });
+        expect(document.version).toBe(5);
+        expect(document.raw["output_viewing"]).toEqual({ mode: "not-a-mode" });
+
+        await expect(epf.loadConfigSource({ kind: "path", path })).rejects.toThrow(/invalid/i);
+        expect(epf.hasConfig()).toBe(false);
+        expect(epf.getAttemptedConfigSource()).toEqual({ kind: "path", path });
+
+        const outdatedPath = `${workspace.path}/old.toml`;
+        await epf.web.storageFs.writeText(outdatedPath, "version = 4\n");
+        const outdated = await epf.openConfigDocument({ kind: "path", path: outdatedPath });
+        expect(outdated.version).toBe(4);
+    });
+
+    test("saves, renames and defaults a library config", async () => {
+        const source = await epf.saveConfigToHome(REPO_CONFIG, "library.toml", {
+            overwrite: true,
+            makeDefault: true,
+        });
+        expect(source.kind).toBe("path");
+        expect(epf.getDefaultHomeConfig()).toBe("library.toml");
+        expect(epf.getConfigSource()).toEqual(source);
+
+        const edited = REPO_CONFIG.replace("Review the attached files.", "Review the library files.");
+        await epf.saveConfigToCurrentSource(edited);
+        await expect(epf.readHomeConfig("library.toml")).resolves.toBe(edited);
+
+        const renamed = await epf.renameHomeConfig("library.toml", "renamed.toml");
+        expect(renamed).toEqual({
+            kind: "path",
+            path: `${epf.getHomeDir()}/renamed.toml`,
+        });
+        expect(epf.getDefaultHomeConfig()).toBe("renamed.toml");
+        expect(epf.getConfigSource()).toEqual(renamed);
+        expect((await epf.listHomeConfigs()).map((file) => file.name)).toEqual(["renamed.toml"]);
+        await expect(epf.readHomeConfig("library.toml")).rejects.toThrow();
+    });
+
+    test("finds the library as a fallback when the workspace has no config", async () => {
+        await epf.saveConfigToHome(REPO_CONFIG, "epf.toml", { overwrite: true });
+        const workspace = await epf.createWorkspace("empty", "empty");
+        epf.web.state.setStoredConfigSource(null);
+        expect(await epf.findConfigSource()).toEqual({
+            kind: "path",
+            path: `${epf.getHomeDir()}/epf.toml`,
+        });
+
+        // A priority workspace config wins over the library file.
+        await epf.saveConfigToWorkspace(REPO_CONFIG, "epf.toml", { overwrite: true });
+        epf.web.state.setStoredConfigSource(null);
+        expect(await epf.findConfigSource()).toEqual({
+            kind: "path",
+            path: `${workspace.path}/epf.toml`,
+        });
+    });
+
+    test("copies a library config into the active workspace", async () => {
+        await epf.saveConfigToHome(REPO_CONFIG, "library.toml", { overwrite: true });
+        const workspace = epf.requireActiveWorkspace();
+        const source = await epf.copyHomeConfigToWorkspace("library.toml", "epf.toml");
+        expect(source).toEqual({
+            kind: "path",
+            path: `${workspace.path}/epf.toml`,
+        });
+        expect(await epf.readHomeConfig("library.toml")).toBe(REPO_CONFIG);
+    });
+
+    test("lists custom workspace TOML files for the picker", async () => {
+        await epf.saveConfigToWorkspace(REPO_CONFIG, "strict.toml", { overwrite: true });
+        expect(await epf.listWorkspaceConfigFiles()).toEqual(["strict.toml"]);
+        expect(await epf.detectConfigCandidates()).toEqual([]);
+    });
+
+    test("keeps the library when workspaces are cleaned up", async () => {
+        await epf.saveConfigToHome(REPO_CONFIG, "library.toml", { overwrite: true });
+        const workspace = await epf.createWorkspace("old", "empty");
+        const other = epf.listWorkspaces().find((entry) => entry.path !== workspace.path);
+        expect(other).toBeDefined();
+        epf.web.state.setActiveWorkspace(other!.path);
+        await epf.web.quota.cleanupExpired(Date.now() + 8 * 24 * 60 * 60 * 1000);
+        expect(epf.listWorkspaces().some((entry) => entry.path === workspace.path)).toBe(false);
+        await expect(epf.readHomeConfig("library.toml")).resolves.toBe(REPO_CONFIG);
+    });
+
+    test("saves an explicit path even when the engine is on another file", async () => {
+        const homeSource = await epf.saveConfigToHome(REPO_CONFIG, "explicit.toml", { overwrite: true });
+        await epf.saveConfigToWorkspace(REPO_CONFIG, "workspace.toml", { overwrite: true });
+        expect(epf.getConfigSource()?.kind).toBe("path");
+
+        const edited = REPO_CONFIG.replace("Review the attached files.", "Review the explicit file.");
+        const saved = await epf.saveConfigToPath(
+            homeSource.kind === "path" ? homeSource.path : "",
+            edited,
+        );
+        expect(saved).toEqual(homeSource);
+        expect(await epf.readHomeConfig("explicit.toml")).toBe(edited);
+        expect(epf.getConfigSource()).toEqual(homeSource);
+    });
+
+    test("moves a draft when its file is renamed and drops it when deleted", async () => {
+        const source = await epf.saveConfigToHome(REPO_CONFIG, "draft.toml", { overwrite: true });
+        const oldPath = source.kind === "path" ? source.path : "";
+        await epf.saveEditorDraft({
+            sourceKey: `path:${oldPath}`,
+            sourceLabel: "draft.toml",
+            baseHash: "abc",
+            configVersion: 5,
+            migratedFrom: null,
+            text: REPO_CONFIG,
+            savedAt: Date.now(),
+        });
+
+        const renamed = await epf.renameHomeConfig("draft.toml", "renamed-draft.toml");
+        const newPath = renamed.kind === "path" ? renamed.path : "";
+        const drafts = await epf.readEditorDrafts();
+        expect(drafts.drafts[`path:${oldPath}`]).toBeUndefined();
+        expect(drafts.drafts[`path:${newPath}`]?.sourceKey).toBe(`path:${newPath}`);
+
+        await epf.deleteHomeConfig("renamed-draft.toml");
+        expect((await epf.readEditorDrafts()).drafts[`path:${newPath}`]).toBeUndefined();
+    });
+
+    test("persists and clears editor drafts", async () => {
+        const draft = {
+            sourceKey: "path:test",
+            sourceLabel: "test.toml",
+            baseHash: "abc",
+            configVersion: 5,
+            migratedFrom: null,
+            text: REPO_CONFIG,
+            savedAt: Date.now(),
+        };
+        await epf.saveEditorDraft(draft);
+        const file = await epf.readEditorDrafts();
+        expect(file.drafts["path:test"]?.text).toBe(REPO_CONFIG);
+
+        await epf.deleteEditorDraft("path:test");
+        expect((await epf.readEditorDrafts()).drafts["path:test"]).toBeUndefined();
+
+        await epf.saveEditorDraft(draft);
+        await epf.clearEditorDrafts();
+        expect((await epf.readEditorDrafts()).drafts).toEqual({});
+    });
+});

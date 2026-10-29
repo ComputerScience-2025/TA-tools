@@ -70,6 +70,15 @@ export function toConfigSource(value: string | ConfigSource): ConfigSource {
     return { kind: "path", path: trimmed };
 }
 
+/**
+ * One validation problem. `path` is the Zod issue path, so the interactive
+ * editor can attach the message to the field that caused it.
+ */
+export type ConfigIssue = {
+    path: (string | number)[];
+    message: string;
+};
+
 /** Validation problems as readable `path: message` lines. */
 export function formatConfigIssues(error: ZodError): string[] {
     return error.issues.map((issue) => {
@@ -80,7 +89,14 @@ export function formatConfigIssues(error: ZodError): string[] {
 
 export type ConfigValidation =
     | { ok: true; config: Config }
-    | { ok: false; message: string; issues: string[] };
+    | { ok: false; message: string; issues: string[]; structuredIssues: ConfigIssue[] };
+
+function structuredIssuesFromZod(error: ZodError): ConfigIssue[] {
+    return error.issues.map((issue) => ({
+        path: issue.path.map((segment) => (typeof segment === "number" ? segment : String(segment))),
+        message: issue.message,
+    }));
+}
 
 /**
  * Version gate plus schema validation for an already-parsed config object.
@@ -90,19 +106,23 @@ export type ConfigValidation =
 export function validateConfigObject(obj: Record<string, unknown>, label: string): ConfigValidation {
     const version = detectConfigVersion(obj);
     if (version < CURRENT_CONFIG_VERSION) {
+        const message = `Config version ${version} is outdated; run 'even-pf migrate -C ${label}'.`;
         return {
             ok: false,
             message: `Config version ${version} is outdated (current is ${CURRENT_CONFIG_VERSION}). ` +
                 `Run: even-pf migrate -C ${label}`,
-            issues: [`Config version ${version} is outdated; run 'even-pf migrate -C ${label}'.`],
+            issues: [message],
+            structuredIssues: [{ path: [], message }],
         };
     }
     if (version > CURRENT_CONFIG_VERSION) {
+        const message = `Config version ${version} is newer than this build supports (${CURRENT_CONFIG_VERSION}).`;
         return {
             ok: false,
             message: `Config version ${version} is newer than this binary supports (${CURRENT_CONFIG_VERSION}). ` +
                 `Upgrade even-pf.`,
-            issues: [`Config version ${version} is newer than this build supports (${CURRENT_CONFIG_VERSION}).`],
+            issues: [message],
+            structuredIssues: [{ path: [], message }],
         };
     }
 
@@ -112,6 +132,7 @@ export function validateConfigObject(obj: Record<string, unknown>, label: string
             ok: false,
             message: `Config file is invalid: ${label}`,
             issues: formatConfigIssues(parsed.error),
+            structuredIssues: structuredIssuesFromZod(parsed.error),
         };
     }
     return { ok: true, config: parsed.data as Config };
@@ -124,9 +145,37 @@ export function validateConfigText(platform: Platform, text: string, label = "co
         obj = platform.toml.parse(text);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return { ok: false, message: `TOML parse error in ${label}: ${message}`, issues: [message] };
+        return {
+            ok: false,
+            message: `TOML parse error in ${label}: ${message}`,
+            issues: [message],
+            structuredIssues: [{ path: [], message }],
+        };
     }
     return validateConfigObject(obj, label);
+}
+
+/** Name of the config file looked up in the platform's home directory. */
+export function homeConfigFileName(platform: Platform): string {
+    const configured = platform.homeConfigName;
+    return configured !== undefined && configured.trim().length > 0
+        ? configured.trim()
+        : DEFAULT_CONFIG_FILE_NAME;
+}
+
+/**
+ * The home-directory config, when the platform has a home directory and the
+ * file exists. The web platform points this at its durable config library.
+ */
+export async function findHomeConfigSource(platform: Platform): Promise<ConfigSource | null> {
+    if (platform.homeDir === undefined) {
+        return null;
+    }
+    const path = joinPath(platform.homeDir, homeConfigFileName(platform));
+    if (await platform.fs.exists(path)) {
+        return { kind: "path", path };
+    }
+    return null;
 }
 
 export async function resolveConfigSource(
@@ -151,12 +200,10 @@ export async function resolveConfigSource(
         return { kind: "path", path: workspaceCandidate };
     }
 
-    if (platform.homeDir !== undefined) {
-        const homeCandidate = joinPath(platform.homeDir, DEFAULT_CONFIG_FILE_NAME);
-        if (await platform.fs.exists(homeCandidate)) {
-            platform.logger.log("info", "Found config from home directory");
-            return { kind: "path", path: homeCandidate };
-        }
+    const home = await findHomeConfigSource(platform);
+    if (home !== null) {
+        platform.logger.log("info", "Found config from home directory");
+        return home;
     }
 
     throw new Error(`Config file ${DEFAULT_CONFIG_FILE_NAME} not found`);

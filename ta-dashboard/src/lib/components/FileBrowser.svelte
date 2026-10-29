@@ -3,7 +3,7 @@
 	import DOMPurify from "dompurify";
 
 	import { marked, preprocessMarkdown } from "$lib/marked-config";
-	import { darkMode, enableMultilineTableCode, escapePipesInTableCode } from "$lib/stores";
+	import { enableMultilineTableCode, escapePipesInTableCode } from "$lib/stores";
 	import type { ResultFileEntry, ResultFileSource } from "$lib/results/file-sources";
 
 	type LoadState = "idle" | "loading" | "ready" | "error";
@@ -178,13 +178,6 @@
 				/>
 				Table Code Blocks
 			</label>
-			<button
-				class="button is-light"
-				onclick={() => darkMode.update((v) => !v)}
-				title={$darkMode ? "Switch to light mode" : "Switch to dark mode"}
-			>
-				{$darkMode ? "☀️ Light" : "🌙 Dark"}
-			</button>
 		</div>
 	{/if}
 </div>

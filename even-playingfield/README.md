@@ -57,24 +57,48 @@ What differs from the CLI:
 | Filesystem | `@zenfs/core`: IndexedDB (persistent) with an in-memory fallback when storage is blocked |
 | Workspaces | Each fetched repository / upload target is a workspace under `/epf/workspaces/<slug>`; the active one plays the role of the CLI's `--dir` |
 | Storage limits | Per-file cap (8 MiB), total cap (128 MiB), 7-day TTL for unpinned workspaces. Over the cap, the least recently used unpinned workspace is removed; pinned and active workspaces are never touched |
-| Config | Explicit source → `EPF_CONFIG_URL` → `epf.toml` in the active workspace. Workspace files and URLs are remembered across reloads; pasted configs are session-only |
+| Config | Explicit source → `EPF_CONFIG_URL` → `epf.toml` in the active workspace → the durable library default (`/epf/home`). Workspace files and URLs are remembered across reloads; pasted configs are not remembered as the engine source |
 | Environment | A browser has none: values are set in the web UI (see `src/util/env-vars.ts`). Secrets stay in memory unless "remember" is enabled |
 | Testing workflows | Unavailable — they need a shell. They fail fast with a clear message; run them with the CLI |
 | Outputs | Each finished run's filenames are recorded per workspace, so `clear`/`rerun` (and the dashboard's "Clear outputs") delete exactly those files and nothing else. `clearWorkspace(path)` is the explicit delete-everything action |
 | Multiple tabs | The first tab takes a Web Locks lock for writing; other tabs run read-only (the results viewer reads the persisted store) or memory-only |
 | Provider calls | Direct from the browser, so the provider endpoint must allow CORS. Anthropic additionally refuses cross-origin requests unless the provider sets `headers = { "anthropic-dangerous-direct-browser-access" = "true" }`; any `[llm.providers.*] headers` are passed through to the SDK |
 
-API keys live in the config you load, which is why pasted configs ("apply for this session") are never written to browser
-storage. Saving a config *into* a workspace writes the TOML — including its `api_key` values — to browser storage, so use that
-for configs you are willing to keep in this browser. The results viewer's `#source=workspace` mode lists the recorded outputs,
+API keys live in the config you load. Saving a config *into* a workspace or the library writes the TOML — including its
+`api_key` values — to browser storage, so use that for configs you are willing to keep in this browser. Applying a config for
+this session does not make the text the remembered engine source, but the interactive editor still autosaves its draft (also
+including API keys) so a refresh does not lose work. The results viewer's `#source=workspace` mode lists the recorded outputs,
 so fetched repositories and configs never appear as results.
+
+### Interactive config editor
+
+The dashboard's Config tab edits the whole config through a form generated from `ConfigSchema`, not a free-form TOML textarea:
+
+- **Form**: add / delete / reorder / duplicate array items, record entries and string-list values. Renaming a provider or model
+  rewrites the references that point at it, and deleting a referenced one is refused. Provider/model fields are selects, prompts
+  are textareas, and `seed` stays unset (a fresh timestamp per run) unless explicitly pinned.
+- **TOML preview**: read-only output of the exact serializer Save uses. Comments and the original formatting are normalized.
+- **Library**: config files live in `/epf/home` (multiple named files, renameable, with one optional default). Library files
+  survive workspace cleanup; a workspace with no config falls back to the library default, so a config does not need to be
+  copied into every new workspace. "Copy to workspace" remains available for a local copy.
+- **Drafts**: unsaved edits are written to `/epf/home/.editor/drafts.json` in IndexedDB (debounced) and restored after a
+  refresh/crash. A changed source is reported as a conflict instead of being overwritten.
+- **Migration**: opening an outdated config shows the registered migrations. Nothing is rewritten until the user chooses to
+  migrate and then saves; newer-than-build configs open read-only.
+
+Saving is explicit: **Save** writes the file the editor was opened from (library or workspace), **Save as** writes to a chosen
+destination, and **Apply for this session** changes only the engine in this tab. `WebEPF.saveConfigToPath()` is the
+path-explicit save used by the editor; `saveConfigToCurrentSource()` remains the engine-source convenience.
+
+The browser platform sets `Platform.homeDir` to `/epf/home` and `Platform.homeConfigName` to the selected library default, so
+`resolveConfigSource()` can find it on a fresh page. The CLI keeps its OS home directory and the conventional `epf.toml`.
 
 ## Development
 
 ### Platform layer
 
 Core code (`engine/`, `workflow/`, `util/`) must run under Bun *and* in a browser, so it only touches the outside world through
-`src/platform/types.ts` (`VirtualFileSystem`, `EnvProvider`, `ShellRunner`, `Logger`, `toml`):
+`src/platform/types.ts` (`VirtualFileSystem`, `EnvProvider`, `ShellRunner`, `Logger`, `toml`, `homeDir`, `homeConfigName`):
 
 ```
 src/platform/

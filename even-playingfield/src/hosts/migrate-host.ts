@@ -32,7 +32,7 @@ import chalk from "chalk";
 
 import { ConfigSchema, CURRENT_CONFIG_VERSION } from "../util/config-schema.ts";
 import { configSourceLabel, loadRawConfig, resolveConfigSource } from "../util/config-loader.ts";
-import { detectConfigVersion, migrateToCurrent } from "../util/config-migrations.ts";
+import { detectConfigVersion, migrateToCurrent, migrationSteps } from "../util/config-migrations.ts";
 import { stringifyToml } from "../util/toml-stringify.ts";
 import { createBunPlatform } from "../platform/bun/bun-platform.ts";
 
@@ -69,6 +69,10 @@ export async function runMigrate(argv: string[]): Promise<void> {
     if (fromVersion === CURRENT_CONFIG_VERSION) {
         console.log(chalk.yellow(`Config is already at version ${CURRENT_CONFIG_VERSION}; nothing to migrate.`));
         process.exit(0);
+    }
+
+    for (const step of migrationSteps(fromVersion)) {
+        console.log(chalk.gray(`  v${step.from} → v${step.to}: ${step.description}`));
     }
 
     const migrated = migrateToCurrent(obj);

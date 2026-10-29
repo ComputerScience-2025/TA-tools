@@ -14,6 +14,7 @@ import { WebEnvProvider, WEB_ENV_KEY } from "./web-env.ts";
 import { WebLogBuffer } from "./web-logger.ts";
 import { WebStateStore, WEB_STATE_KEY, defaultStorage } from "./web-state.ts";
 import { WEB_WORKSPACE_ROOT, createZenFileSystem } from "./zen-vfs.ts";
+import { DEFAULT_CONFIG_FILE_NAME } from "../../util/config-loader.ts";
 import { ShellUnavailableError } from "../types.ts";
 import type { KeyValueStorage } from "./web-state.ts";
 import type { QuotaEvent } from "./quota-vfs.ts";
@@ -21,6 +22,15 @@ import type { Platform, ShellResult, ShellRunner, TomlCodec, VirtualFileSystem, 
 
 /** Names the Web Locks entry that keeps two tabs off one storage area. */
 export const WEB_STORAGE_LOCK = "epf-storage";
+
+/**
+ * Durable home directory for a workspace root. Unlike `<root>/workspaces/...`,
+ * nothing in the quota policy evicts it: library configs and editor drafts
+ * outlive workspaces.
+ */
+export function webHomeDir(root: string): string {
+    return `${root.replace(/\/+$/, "")}/home`;
+}
 
 export type WebPlatformOptions = {
     /** Ask ZenFS for the IndexedDB backend (default true). */
@@ -48,6 +58,8 @@ export type WebPlatform = {
     storageFs: QuotaFileSystem;
     /** Underlying store, for operations that bypass policy (removal). */
     rawFs: VirtualFileSystem;
+    /** Durable config library directory. */
+    homeDir: string;
     state: WebStateStore;
     env: WebEnvProvider;
     logs: WebLogBuffer;
@@ -110,9 +122,11 @@ export async function createWebPlatform(options: WebPlatformOptions = {}): Promi
         },
     };
 
+    const homeDir = webHomeDir(mount.root);
     const quota = new QuotaFileSystem(mount.fs, quotaContext);
     if (!readOnly) {
         await quota.mkdir(quota.root);
+        await quota.mkdir(homeDir);
         await adoptOrphanWorkspaces(mount.fs, state, quota.root);
         await quota.usage();
         await quota.cleanupExpired();
@@ -128,7 +142,10 @@ export async function createWebPlatform(options: WebPlatformOptions = {}): Promi
         shell: createUnavailableShell(),
         logger: logs,
         toml: SMOL_TOML,
-        // No home directory in a browser: config lookup stops at the workspace.
+        homeDir,
+        get homeConfigName(): string {
+            return state.getHomeSettings().defaultConfig ?? DEFAULT_CONFIG_FILE_NAME;
+        },
     };
 
     return {
@@ -136,6 +153,7 @@ export async function createWebPlatform(options: WebPlatformOptions = {}): Promi
         fs: scoped,
         storageFs: quota,
         rawFs: mount.fs,
+        homeDir,
         state,
         env,
         logs,

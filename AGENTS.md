@@ -70,7 +70,11 @@ Rules:
 - Output files are recorded, not guessed: the engine reports each run's filenames, the browser host keeps them per workspace in
   `WebState.outputs`, and "clear outputs" deletes exactly those names. Never delete a directory's files by pattern.
 
-Config: TOML, loaded from `--config` CLI arg → `EPF_CONFIG_URL` env var → `epf.toml` in cwd/home. Validated with Zod v4 schemas in `src/util/config-schema.ts`. Env-var names live in `src/util/env-vars.ts` (the web UI renders that registry).
+Config: TOML, loaded from `--config` CLI arg → `EPF_CONFIG_URL` env var → `epf.toml` in cwd/home. In the browser the
+workspace check comes before a durable home library (`Platform.homeDir`), whose selected file is
+`Platform.homeConfigName` (`WebState.home.defaultConfig`). Validated with Zod v4 schemas in
+`src/util/config-schema.ts`; `CURRENT_CONFIG_VERSION` and the registry in `src/util/config-migrations.ts` are shared by the
+CLI `migrate` command and the browser editor. Env-var names live in `src/util/env-vars.ts` (the web UI renders that registry).
 
 Key dependencies: `ai` (Vercel AI SDK core), `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `chalk`, `smol-toml`, `zod-defaults`.
 
@@ -103,6 +107,19 @@ Browser EPF integration:
 - `src/lib/components/FileBrowser.svelte` + `src/lib/results/file-sources.ts` serve all three result sources: live API (`#api=`),
   URL hash (`#name=&comp=&data=`), and the browser workspace (`#source=workspace`, which lists the recorded outputs). Rendered
   markdown is sanitized with `dompurify` before `{@html}`, because a fetched repository's files are untrusted input.
+- The Config tab is an interactive editor, not a textarea. `src/lib/epf/config-editor.svelte.ts` owns the raw parsed document,
+  validation, preview, dirty tracking and draft autosave; `src/lib/components/epf/config/ConfigNode.svelte` renders the tree from
+  `util/config-form-schema.ts` (derived from `ConfigSchema`), and `ConfigLibrary.svelte` manages the home library + workspace
+  config picker. Editing operations live in `util/config-object.ts`; keep them pure and cover them with `bun test` in
+  `even-playingfield`.
+- The library is `/epf/home/<name>.toml`, outside `/epf/workspaces`, so quota/TTL cleanup never removes it. A workspace with no
+  config falls back to the selected library default (or `epf.toml`/a single file). `WebEPF.saveConfigToPath()` is the
+  path-explicit save the editor uses; do not save through the engine's current source when the editor is on a different file.
+- Editor drafts (including API keys) are stored in `/epf/home/.editor/drafts.json` in IndexedDB, keyed by source, and restored
+  with a base-hash conflict check. Applying/saving/discarding bumps a draft epoch so an in-flight autosave cannot resurrect a
+  stale draft. Opening an outdated config asks before migrating; the file is only rewritten on save.
+- Config file lists: `detectConfigCandidates()` is the auto-adopt priority list (`epf.toml`, `eval/epf.toml`);
+  `listWorkspaceConfigFiles()` is the broader picker (top-level `*.toml` + `eval/*.toml`). Keep the two distinct.
 - EPF deps are version-pinned in `ta-dashboard/package.json` to match `even-playingfield`; keep them in step.
 
 Styling: Bulma CSS classes. Toast notifications via `@zerodevx/svelte-toast`. Markdown rendering via `marked`.

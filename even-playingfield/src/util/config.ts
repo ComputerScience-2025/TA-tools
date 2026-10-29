@@ -10,7 +10,9 @@ export {
     CONFIG_URL_ENV_VAR,
     DEFAULT_CONFIG_FILE_NAME,
     configSourceLabel,
+    findHomeConfigSource,
     formatConfigIssues,
+    homeConfigFileName,
     loadConfig,
     loadRawConfig,
     resolveConfigSource,
@@ -18,4 +20,4 @@ export {
     validateConfigObject,
     validateConfigText,
 } from "./config-loader.ts";
-export type { Config, ConfigSource, ResolvedConfig } from "./config-loader.ts";
+export type { Config, ConfigIssue, ConfigSource, ConfigValidation, ResolvedConfig } from "./config-loader.ts";

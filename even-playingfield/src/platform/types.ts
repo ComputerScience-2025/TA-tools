@@ -111,6 +111,14 @@ export type Platform = {
     shell: ShellRunner;
     logger: Logger;
     toml: TomlCodec;
-    /** Bun: os.homedir(). Web: undefined — there is no home directory. */
+    /**
+     * Bun: os.homedir(). Web: the durable config library (`/epf/home`), which
+     * survives workspace cleanup.
+     */
     homeDir?: string;
+    /**
+     * Name of the config file looked up inside {@link homeDir}. Defaults to
+     * `epf.toml`; the web platform points this at the selected library file.
+     */
+    homeConfigName?: string;
 };

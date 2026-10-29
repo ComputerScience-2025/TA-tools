@@ -14,7 +14,7 @@ export type KeyValueStorage = {
 };
 
 export const WEB_STATE_KEY = "epf.platform";
-export const WEB_STATE_VERSION = 1;
+export const WEB_STATE_VERSION = 2;
 
 export const DEFAULT_STORAGE_SETTINGS: StorageSettings = {
     /** A single file larger than this is refused (fetch reports it as skipped). */
@@ -29,6 +29,15 @@ export type StorageSettings = {
     maxFileBytes: number;
     maxTotalBytes: number;
     sourceTtlDays: number;
+};
+
+export type HomeSettings = {
+    /**
+     * Library config used when the active workspace has none. Null means the
+     * conventional `epf.toml`, or the only library file when there is exactly
+     * one.
+     */
+    defaultConfig: string | null;
 };
 
 export type WorkspaceOrigin = "github" | "upload" | "empty";
@@ -47,6 +56,7 @@ export type WebState = {
     version: number;
     activeWorkspace: string | null;
     workspaces: WorkspaceState[];
+    home: HomeSettings;
     storage: StorageSettings;
     /**
      * Last config source that can be re-opened after a reload. Inline (pasted)
@@ -106,11 +116,23 @@ function defaultState(): WebState {
         version: WEB_STATE_VERSION,
         activeWorkspace: null,
         workspaces: [],
+        home: { defaultConfig: null },
         storage: { ...DEFAULT_STORAGE_SETTINGS },
         configSource: null,
         outputs: {},
         console: { history: [] },
     };
+}
+
+function validHomeConfigName(value: unknown): string | null {
+    if (typeof value !== "string") {
+        return null;
+    }
+    const name = value.trim();
+    if (name.length === 0 || name.startsWith(".") || name.includes("/") || name.includes("\\")) {
+        return null;
+    }
+    return name.toLowerCase().endsWith(".toml") ? name : `${name}.toml`;
 }
 
 /** Merge a parsed blob with defaults so missing/renamed fields cannot break. */
@@ -143,6 +165,14 @@ function coerceState(raw: unknown): WebState {
                 pinned: item.pinned === true,
             }];
         });
+    }
+
+    if (typeof record.home === "object" && record.home !== null) {
+        const home = record.home as Record<string, unknown>;
+        const defaultConfig = validHomeConfigName(home.defaultConfig);
+        if (defaultConfig !== null) {
+            state.home.defaultConfig = defaultConfig;
+        }
     }
 
     if (typeof record.storage === "object" && record.storage !== null) {
@@ -379,6 +409,26 @@ export class WebStateStore {
                 }
             }
             state.storage = next;
+        }, { immediate: true });
+    }
+
+    // --- Home config library ---
+
+    getHomeSettings(): HomeSettings {
+        return { ...this.state.home };
+    }
+
+    getDefaultHomeConfig(): string | null {
+        return this.state.home.defaultConfig;
+    }
+
+    setDefaultHomeConfig(name: string | null): void {
+        const value = name === null ? null : validHomeConfigName(name);
+        if (name !== null && value === null) {
+            throw new Error(`Invalid config file name: ${name}`);
+        }
+        this.update((state) => {
+            state.home.defaultConfig = value;
         }, { immediate: true });
     }
 

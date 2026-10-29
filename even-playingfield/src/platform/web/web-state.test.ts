@@ -76,6 +76,27 @@ describe("WebStateStore", () => {
         expect(store.get().activeWorkspace).toBe("/w/one");
     });
 
+    test("persists the library default and rejects unsafe names", () => {
+        const storage = createMemoryStorage();
+        const first = new WebStateStore(storage);
+        expect(first.getDefaultHomeConfig()).toBeNull();
+
+        first.setDefaultHomeConfig("strict");
+        expect(first.getDefaultHomeConfig()).toBe("strict.toml");
+        expect(() => first.setDefaultHomeConfig("../escape.toml")).toThrow();
+        expect(() => first.setDefaultHomeConfig(".hidden.toml")).toThrow();
+
+        const second = new WebStateStore(storage);
+        expect(second.getDefaultHomeConfig()).toBe("strict.toml");
+    });
+
+    test("ignores an unsafe stored home default", () => {
+        const store = new WebStateStore(createMemoryStorage({
+            [WEB_STATE_KEY]: JSON.stringify({ version: 2, home: { defaultConfig: "../escape.toml" } }),
+        }));
+        expect(store.getDefaultHomeConfig()).toBeNull();
+    });
+
     test("console history is capped and de-duplicated", () => {
         const store = new WebStateStore(createMemoryStorage());
         store.appendConsoleHistory("run");
