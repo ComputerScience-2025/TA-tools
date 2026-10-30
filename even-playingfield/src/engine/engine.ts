@@ -1,4 +1,5 @@
 import { OutputViewer } from "../util/output-viewer.ts";
+import { outputFilenamePattern } from "../util/output-filename.ts";
 import { executeAnalysisWorkflow, type AnalysisWorkflowResult } from "../workflow/analysis-workflow.ts";
 import { executeTestingWorkflow, type TestingWorkflowResult } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
@@ -224,8 +225,8 @@ export class Engine {
     /**
      * Resolve the static filename prefix for each workflow matched by the slug filter.
      * Uses the literal portion of `output_filename` before the first `[` placeholder,
-     * which is the stable, config-defined part of the filename regardless of runtime
-     * values ([seed], [model], [run], etc.).
+     * which is the stable, config-defined part of the filename regardless of the
+     * runtime values the placeholders take.
      * Pass the result to clearResults() to accurately target the right output files.
      *
      * Filenames that start with a placeholder yield an empty prefix, which would
@@ -251,8 +252,9 @@ export class Engine {
      *
      * `knownOutputs` is the host's list of files that finished runs actually
      * wrote (the browser keeps it across reloads). Each configured filename is
-     * matched as an anchored glob where `[slug]`, `[model]`, `[seed]` and
-     * `[run]` are wildcards, so similarly named workflows stay distinguishable.
+     * matched as an anchored glob where every placeholder in
+     * `OUTPUT_FILENAME_PLACEHOLDERS` is a wildcard, so similarly named
+     * workflows stay distinguishable.
      *
      * Returns [] when nothing is known, so callers never fall back to matching
      * every file in the working directory.
@@ -325,19 +327,4 @@ export class Engine {
         }
         return filtered;
     }
-}
-
-/**
- * Build an anchored matcher for a configured output filename. Placeholders are
- * replaced at run time; treating each as a wildcard distinguishes workflows
- * whose literal filename prefixes overlap (the old substring heuristic could
- * delete another workflow's results).
- */
-function outputFilenamePattern(pattern: string): RegExp {
-    const placeholders = new Set(["[slug]", "[model]", "[seed]", "[run]"]);
-    const body = pattern
-        .split(/(\[(?:slug|model|seed|run)\])/)
-        .map((part) => placeholders.has(part) ? ".+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-        .join("");
-    return new RegExp(`^${body}$`);
 }

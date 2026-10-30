@@ -1,4 +1,5 @@
 import { basenamePath, relativePath } from "$epf/platform/path.ts";
+import { describeOutputFilenamePlaceholders } from "$epf/util/output-filename.ts";
 
 import type { ConfigPath, RawConfigObject } from "$epf/util/config-object.ts";
 import type { ConfigFieldDescriptor } from "$epf/util/config-form-schema.ts";
@@ -179,6 +180,8 @@ export function fieldLabel(path: ConfigPath, descriptor: ConfigFieldDescriptor):
 	return "Config";
 }
 
+const OUTPUT_FILENAME_HELP = describeOutputFilenamePlaceholders();
+
 const FIELD_HELP: { pattern: string; help: string }[] = [
 	{
 		pattern: "llm.models.*.seed",
@@ -202,11 +205,11 @@ const FIELD_HELP: { pattern: string; help: string }[] = [
 	},
 	{
 		pattern: "analysis_workflows.*.output_filename",
-		help: "Supports the [seed] and [model] placeholders."
+		help: OUTPUT_FILENAME_HELP
 	},
 	{
 		pattern: "testing_workflows.*.output_filename",
-		help: "Supports the [seed] and [model] placeholders."
+		help: OUTPUT_FILENAME_HELP
 	},
 	{
 		pattern: "analysis_workflows.*.input_files_searches.*.search_directory",

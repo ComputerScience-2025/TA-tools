@@ -32,6 +32,7 @@ describe("config form descriptors", () => {
         expect(findDescriptor(descriptor, ["llm", "models", "demo", "provider"])?.widget).toBe("provider-reference");
         expect(findDescriptor(descriptor, ["analysis_workflows", 0, "model"])?.widget).toBe("model-reference");
         expect(findDescriptor(descriptor, ["analysis_workflows", 0, "prompt"])?.widget).toBe("textarea");
+        expect(findDescriptor(descriptor, ["llm", "prompt_replacement", "base_role"])?.widget).toBe("textarea");
         const seed = findDescriptor(descriptor, ["llm", "models", "demo", "seed"]);
         expect(seed?.widget).toBe("seed");
         expect(seed?.hasDefault).toBe(false);

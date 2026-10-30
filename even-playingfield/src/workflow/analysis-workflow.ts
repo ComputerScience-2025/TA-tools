@@ -1,6 +1,7 @@
 import { scanGlob } from "../platform/glob.ts";
 import { joinPath } from "../platform/path.ts";
 import { FilePayloadGenerator } from "../util/file-payload.ts";
+import { resolveOutputFilename } from "../util/output-filename.ts";
 import type { WorkflowDependencies } from "./index.ts";
 import type { CompletionMetrics } from "../util/llm.ts";
 import type { AnalysisWorkflow } from "../util/config-schema.ts";
@@ -73,11 +74,12 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
             }
         }));
 
-        const outputFileName = workflow.output_filename
-            .replaceAll("[seed]", deps.config.llm.models[workflow.model]!.seed.toString())
-            .replaceAll("[slug]", workflow.slug)
-            .replaceAll("[model]", `(${completion.model.replaceAll("/", "--")})`)
-            .replaceAll("[run]", runNum.toString());
+        const outputFileName = resolveOutputFilename(workflow.output_filename, {
+            slug: workflow.slug,
+            model: `(${completion.model.replaceAll("/", "--")})`,
+            seed: deps.config.llm.models[workflow.model]!.seed.toString(),
+            run: runNum.toString(),
+        });
 
         await deps.outputViewer.addFile(outputFileName, { type: "markdown", content: completion.text });
         log(`Completion saved as ${outputFileName}`);

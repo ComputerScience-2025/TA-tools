@@ -248,6 +248,27 @@
 	{/if}
 {/snippet}
 
+{#snippet arrayItemControls(path: ConfigPath, index: number, label: string, count: number)}
+	<div class="buttons has-addons mb-0">
+		<button
+			type="button"
+			class="button is-small"
+			title="Move up"
+			disabled={index === 0}
+			onclick={() => configEditor.moveArrayItem(path, index, index - 1)}
+		>↑</button>
+		<button
+			type="button"
+			class="button is-small"
+			title="Move down"
+			disabled={index === count - 1}
+			onclick={() => configEditor.moveArrayItem(path, index, index + 1)}
+		>↓</button>
+		<button type="button" class="button is-small" title="Duplicate" onclick={() => duplicateItem(path, index)}>Duplicate</button>
+		<button type="button" class="button is-small is-danger is-light" onclick={() => deleteItem(path, index, label)}>Delete</button>
+	</div>
+{/snippet}
+
 {#snippet renderNode(
 	descriptor: ConfigFieldDescriptor,
 	path: ConfigPath,
@@ -447,37 +468,31 @@
 				{#each configEditor.arrayItems(path) as item, index (index)}
 					{@const itemPath = [...path, index]}
 					{@const itemLabel = arrayItemLabel(path, item, index)}
+					{@const itemDescriptor = descriptor.items ?? UNSUPPORTED}
+					{@const scalarItem =
+						itemDescriptor.kind === "string" ||
+						itemDescriptor.kind === "number" ||
+						itemDescriptor.kind === "integer" ||
+						itemDescriptor.kind === "boolean" ||
+						itemDescriptor.kind === "enum"}
 					<div class="config-array-item box p-3 mb-2">
-						<div class="is-flex is-justify-content-space-between is-align-items-center mb-2">
-							<div>
-								<span class="tag is-small is-light mr-2">{index + 1}</span>
-								<strong>{itemLabel}</strong>
+						{#if scalarItem}
+							<div class="config-array-scalar is-flex is-align-items-center">
+								<span class="tag is-small is-light mr-2" title={itemLabel}>{index + 1}</span>
+								<div class="is-flex-grow-1">
+									{@render renderNode(itemDescriptor, itemPath, "", true)}
+								</div>
+								<div class="ml-2">
+									{@render arrayItemControls(path, index, itemLabel, configEditor.arrayItems(path).length)}
+								</div>
 							</div>
-							<div class="buttons has-addons mb-0">
-								<button
-									type="button"
-									class="button is-small"
-									title="Move up"
-									disabled={index === 0}
-									onclick={() => configEditor.moveArrayItem(path, index, index - 1)}
-								>↑</button>
-								<button
-									type="button"
-									class="button is-small"
-									title="Move down"
-									disabled={index === configEditor.arrayItems(path).length - 1}
-									onclick={() => configEditor.moveArrayItem(path, index, index + 1)}
-								>↓</button>
-								<button type="button" class="button is-small" title="Duplicate" onclick={() => duplicateItem(path, index)}>Duplicate</button>
-								<button type="button" class="button is-small is-danger is-light" onclick={() => deleteItem(path, index, itemLabel)}>Delete</button>
+						{:else}
+							<div class="is-flex is-justify-content-space-between is-align-items-center mb-2">
+								<span class="tag is-small is-light" title={itemLabel}>{index + 1}</span>
+								{@render arrayItemControls(path, index, itemLabel, configEditor.arrayItems(path).length)}
 							</div>
-						</div>
-						{@render renderNode(
-							descriptor.items ?? UNSUPPORTED,
-							itemPath,
-							"",
-							true
-						)}
+							{@render renderNode(itemDescriptor, itemPath, "", true)}
+						{/if}
 					</div>
 				{/each}
 			{/if}
@@ -712,6 +727,17 @@
 	.config-form :global(.config-object-title) {
 		cursor: pointer;
 		font-weight: 600;
+	}
+
+	/* Chrome computes content-box for descendants of the <details> boxes, but
+	   Bulma assumes border-box. Restore it so controls do not overflow their
+	   wrappers and paint over the help text. */
+	.config-form :global(*) {
+		box-sizing: border-box;
+	}
+
+	.config-array-scalar :global(.field) {
+		margin-bottom: 0;
 	}
 
 	.config-entry {

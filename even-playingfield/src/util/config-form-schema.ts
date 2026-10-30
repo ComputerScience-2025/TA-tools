@@ -60,6 +60,7 @@ type JsonSchemaNode = Record<string, unknown>;
 
 const TEXTAREA_PATHS = new Set([
     "analysis_workflows.*.prompt",
+    "llm.prompt_replacement.*",
     "testing_workflows.*.test_cases.*.single_run_expected_output.llm_judge_prompt",
     "testing_workflows.*.test_cases.*.interactive_steps.*.expected_output.llm_judge_prompt",
 ]);
