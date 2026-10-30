@@ -54,7 +54,13 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
     ).flat();
 
     if (allFiles.length === 0) {
-        const error = "No files found for workflow, skipping...";
+        // Name what was searched: a pattern that cannot match (a single-item
+        // brace, a directory the fetched tree does not have, a non-recursive
+        // glob) otherwise looks identical to an empty workspace.
+        const searched = workflow.input_files_searches
+            .map((fileSearch) => `${fileSearch.file_glob} in ${fileSearch.search_directory}`)
+            .join(", ");
+        const error = `No files found for workflow, skipping... Searched: ${searched.length > 0 ? searched : "(no file searches configured)"}`;
         warn(error);
         return {
             ...resultBase,

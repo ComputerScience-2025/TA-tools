@@ -1,4 +1,9 @@
+import { formatFileListing, listTree, LIST_MAX_DEPTH } from "./util/file-listing.ts";
+import { configSourceLabel } from "./util/config-loader.ts";
+import { normalizePath } from "./platform/path.ts";
 import type { Engine } from "./engine/index.ts";
+import type { ConfigSource } from "./util/config-loader.ts";
+import type { FileStat, VirtualFileSystem } from "./platform/types.ts";
 
 export type CommandResult = {
     kind: "output" | "error" | "exit";
@@ -12,6 +17,7 @@ export const COMMAND_NAMES: readonly string[] = [
     "clear",
     "status",
     "list",
+    "ls",
     "reload",
     "help",
     "exit",
@@ -24,6 +30,8 @@ const HELP_TEXT = `Available commands:
   clear [slug...]  Clear output files (all if no slug given)
   status           Show in-flight workflows and output file count
   list             Show all configured workflow slugs
+  ls [dir] [--depth N]
+                   List workspace files (defaults to the whole tree)
   reload           Reload config from the same source as startup
   help             Show this help message
   exit / quit      Shut down the program`;
@@ -54,6 +62,8 @@ export async function parseAndExecute(engine: Engine, rawInput: string): Promise
             return handleStatus(engine);
         case "list":
             return handleList(engine);
+        case "ls":
+            return await handleLs(engine, args);
         case "reload":
             return await handleReload(engine);
         case "help":
@@ -154,6 +164,114 @@ function handleList(engine: Engine): CommandResult {
         return { kind: "output", message: "No workflows configured." };
     }
     return { kind: "output", message: lines.join("\n") };
+}
+
+/** Context lines printed above an `ls` listing, supplied by the host. */
+export type LsContext = {
+    header?: string[];
+};
+
+type ParsedLsArgs =
+    | { kind: "parsed"; path: string; maxDepth: number }
+    | { kind: "error"; message: string };
+
+const LS_USAGE = "Usage: ls [dir] [--depth N]";
+
+function parseLsDepth(value: string | undefined): number | null {
+    if (value === undefined || !/^\d+$/.test(value)) {
+        return null;
+    }
+    const depth = Number.parseInt(value, 10);
+    return depth >= 1 ? depth : null;
+}
+
+function parseLsArgs(args: string[]): ParsedLsArgs {
+    let path = ".";
+    let hasPath = false;
+    let maxDepth = LIST_MAX_DEPTH;
+
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index]!;
+        if (arg === "--depth" || arg === "-d") {
+            const depth = parseLsDepth(args[index + 1]);
+            if (depth === null) {
+                return { kind: "error", message: `--depth needs a positive whole number. ${LS_USAGE}` };
+            }
+            maxDepth = depth;
+            index += 1;
+            continue;
+        }
+        if (arg.startsWith("--depth=")) {
+            const depth = parseLsDepth(arg.slice("--depth=".length));
+            if (depth === null) {
+                return { kind: "error", message: `--depth needs a positive whole number. ${LS_USAGE}` };
+            }
+            maxDepth = depth;
+            continue;
+        }
+        if (arg.startsWith("-")) {
+            return { kind: "error", message: `Unknown option '${arg}'. ${LS_USAGE}` };
+        }
+        if (hasPath) {
+            return { kind: "error", message: `ls lists one directory at a time. ${LS_USAGE}` };
+        }
+        path = normalizePath(arg);
+        hasPath = true;
+    }
+
+    return { kind: "parsed", path, maxDepth };
+}
+
+/**
+ * `ls [dir] [--depth N]` — list the workspace tree a run would search.
+ *
+ * Takes the filesystem directly (rather than an Engine) so the browser console
+ * can use it before — or without — a config being loaded, which is when the
+ * "No files found for workflow" question usually comes up.
+ */
+export async function executeLs(fs: VirtualFileSystem, args: string[], context: LsContext = {}): Promise<CommandResult> {
+    const parsed = parseLsArgs(args);
+    if (parsed.kind === "error") {
+        return { kind: "error", message: parsed.message };
+    }
+
+    const target = parsed.path;
+    let info: FileStat | null;
+    try {
+        info = await fs.stat(target);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { kind: "error", message: `Cannot read '${target}': ${message}` };
+    }
+    if (info === null) {
+        return { kind: "error", message: `Not found in the workspace: '${target}'. Run 'ls' to see the root.` };
+    }
+
+    try {
+        const listing = await listTree(fs, { path: target, maxDepth: parsed.maxDepth });
+        const header = context.header !== undefined && context.header.length > 0
+            ? [...context.header, ""]
+            : [];
+        const title = target === "." ? "Listing the workspace root" : `Listing '${target}'`;
+        return {
+            kind: "output",
+            message: [...header, title, "", formatFileListing(listing)].join("\n"),
+        };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { kind: "error", message: `Cannot list '${target}': ${message}` };
+    }
+}
+
+async function handleLs(engine: Engine, args: string[]): Promise<CommandResult> {
+    const fs = engine.getFileSystem();
+    const source: ConfigSource | undefined = engine.getConfigSource();
+    return await executeLs(fs, args, {
+        header: [
+            `Working directory: ${fs.root}`,
+            `Config: ${source === undefined ? "(none loaded)" : configSourceLabel(source)}`,
+        ],
+    });
 }
 
 async function handleReload(engine: Engine): Promise<CommandResult> {

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { scanGlob } from "./glob.ts";
+import { normalizeBraceGroups, scanGlob } from "./glob.ts";
 import { toPosixPath } from "./path.ts";
 import { BunFileSystem } from "./bun/bun-fs.ts";
 
@@ -17,6 +17,8 @@ const FILES = [
     "src/.hidden/Hidden.cs",
     "src/notes.md",
     "src/main.cpp",
+    "src/main.h",
+    "src/include/util.h",
     "src/data.json",
     "README.md",
     "docs/guide.md",
@@ -73,6 +75,42 @@ describe("scanGlob", () => {
         expect(await scanGlob(fs, "*.?s", "src")).toEqual(["Helper.cs", "Program.cs"]);
     });
 
+    test("expands single-alternative braces like Bun.Glob", async () => {
+        // picomatch alone reads `{cs}` as literal text, which is how `*.{cs}`
+        // silently matched nothing in the browser while the CLI worked.
+        expect(await scanGlob(fs, "*.{cs}", "src")).toEqual(["Helper.cs", "Program.cs"]);
+        expect(await scanGlob(fs, "*.{cpp}", "src")).toEqual(["main.cpp"]);
+        expect(await scanGlob(fs, "src/*.{cs}", ".")).toEqual(["src/Helper.cs", "src/Program.cs"]);
+    });
+
+    test("keeps multi-alternative braces working", async () => {
+        // The form `epf.example.toml` ships; picomatch expands it natively.
+        expect(await scanGlob(fs, "*.{cpp,h}", "src")).toEqual(["main.cpp", "main.h"]);
+        expect(await scanGlob(fs, "*.{h,cpp}", "src")).toEqual(["main.cpp", "main.h"]);
+        // `*` does not cross directories, nor does a brace change that.
+        expect(await scanGlob(fs, "**/*.{cpp,h}", "src")).toEqual(["include/util.h", "main.cpp", "main.h"]);
+        expect(await scanGlob(fs, "src/**/*.{cpp,h}", ".")).toEqual(["src/include/util.h", "src/main.cpp", "src/main.h"]);
+    });
+
+    test("accepts a trailing slash in search_directory", async () => {
+        // Configs are written both ways; the browser's scoped filesystem must
+        // resolve them identically (this is the shape the bug report used).
+        expect(await scanGlob(fs, "*.{cs}", "src/")).toEqual(["Helper.cs", "Program.cs"]);
+        expect(await scanGlob(fs, "*.cs", "src//")).toEqual(["Helper.cs", "Program.cs"]);
+        expect(await scanGlob(fs, "*.cs", "./src")).toEqual(["Helper.cs", "Program.cs"]);
+    });
+
+    test("normalizes braces without touching ranges or escapes", () => {
+        expect(normalizeBraceGroups("*.{cs}")).toBe("*.cs");
+        expect(normalizeBraceGroups("*.{cs,cpp}")).toBe("*.{cs,cpp}");
+        expect(normalizeBraceGroups("{src,lib}/*.{cs}")).toBe("{src,lib}/*.cs");
+        expect(normalizeBraceGroups("a{1..3}.txt")).toBe("a{1..3}.txt");
+        expect(normalizeBraceGroups("*.{cs,}")).toBe("*.{cs,}");
+        expect(normalizeBraceGroups("*.\\{cs}")).toBe("*.\\{cs}");
+        expect(normalizeBraceGroups("*.{cs")).toBe("*.{cs");
+        expect(normalizeBraceGroups("*.{cs,cpp}/*.{h}")).toBe("*.{cs,cpp}/*.h");
+    });
+
     test("supports prefix directories in the pattern", async () => {
         expect(await scanGlob(fs, "src/**/*.cs", ".")).toEqual(["src/Helper.cs", "src/Program.cs", "src/nested/Deep.cs"]);
     });
@@ -81,20 +119,39 @@ describe("scanGlob", () => {
         await expect(scanGlob(fs, "*.cs", "nope")).rejects.toThrow();
     });
 
+    test("stops walking past maxDepth", async () => {
+        const shallow = await scanGlob(fs, "**/*.cs", "src", { maxDepth: 1 });
+        expect(shallow).toEqual(["Helper.cs", "Program.cs"]);
+        expect(shallow).not.toContain("nested/Deep.cs");
+    });
+
     test("agrees with Bun.Glob on the patterns used by configs", async () => {
-        const patterns = [
-            "*.cs",
-            "*.cpp",
-            "**/*.cs",
-            "**/*.md",
-            "src/**/*.cs",
-            "**/nested/*.cs",
-            "*.?s",
+        // One implementation for CLI and browser only holds if these agree: the
+        // CLI's original matcher is the reference.
+        const cases: [pattern: string, searchDirectory: string][] = [
+            ["*.cs", "src"],
+            ["*.cpp", "."],
+            ["**/*.cs", "src"],
+            ["**/*.md", "."],
+            ["src/**/*.cs", "."],
+            ["**/nested/*.cs", "."],
+            ["*.?s", "src"],
+            ["*.{cs}", "src"],
+            ["src/*.{cs}", "."],
+            ["*.{md}", "."],
+            ["*.{cpp,h}", "src"],
+            ["*.{h,cpp}", "src"],
+            ["**/*.{cpp,h}", "src"],
+            ["src/**/*.{cpp,h}", "."],
+            ["{src,docs}/*.md", "."],
+            ["**/{nested,include}/*.{cs,h}", "."],
+            ["**/nested/*.{cs}", "."],
         ];
-        for (const pattern of patterns) {
-            expect(await scanGlob(fs, pattern, "."), `pattern: ${pattern}`).toEqual(
-                await referenceGlob(pattern, "."),
-            );
+        for (const [pattern, searchDirectory] of cases) {
+            expect(
+                await scanGlob(fs, pattern, searchDirectory),
+                `pattern: ${pattern} in ${searchDirectory}`,
+            ).toEqual(await referenceGlob(pattern, searchDirectory));
         }
     });
 });

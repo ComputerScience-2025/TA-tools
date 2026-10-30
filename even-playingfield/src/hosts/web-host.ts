@@ -10,9 +10,10 @@
  */
 
 import { Engine } from "../engine/index.ts";
-import { parseAndExecute } from "../command-handler.ts";
+import { executeLs, parseAndExecute } from "../command-handler.ts";
 import {
     DEFAULT_CONFIG_FILE_NAME,
+    configSourceLabel,
     loadConfig,
     loadRawConfig,
     toConfigSource,
@@ -58,6 +59,8 @@ const BROWSER_HELP_TEXT = `Available commands:
   clear [slug...]  Delete output files (all if no slug given)
   status           Show in-flight workflows and output file count
   list             Show all configured workflow slugs
+  ls [dir] [--depth N]
+                   List workspace files (defaults to the whole tree)
   reload           Reload config from the same source as before
   help             Show this help message
   exit / quit      Do nothing (close the browser tab to leave)`;
@@ -1175,6 +1178,27 @@ export class WebEPF {
     }
 
     /**
+     * Header for `ls`: which workspace a run searches and which config drives
+     * it. Those two answers cover most "No files found for workflow" reports.
+     */
+    private describeListingContext(): string[] {
+        const workspace = this.getActiveWorkspace();
+        const loaded = this.getConfigSource();
+        const source = loaded ?? this.getAttemptedConfigSource();
+        let config = "(none loaded)";
+        if (source !== null) {
+            config = configSourceLabel(source);
+            if (loaded === null) {
+                config += " (failed to load)";
+            }
+        }
+        return [
+            `Workspace: ${workspace === null ? "(none active)" : workspace.label}`,
+            `Config: ${config}`,
+        ];
+    }
+
+    /**
      * Run a console command through the same dispatcher the CLI REPL uses.
      * `clear` and `rerun` additionally remove the corresponding output files
      * from the workspace, since the browser has no separate shell for that.
@@ -1192,16 +1216,24 @@ export class WebEPF {
             return { kind: "output", message: "The browser console cannot close the page; close the tab instead." };
         }
 
+        // Handled before the config check: inspecting the workspace is how a
+        // wrong search_directory, a flattened subdirectory fetch, or a config
+        // that failed to load actually gets diagnosed.
+        if (normalized === "ls") {
+            this.web.state.appendConsoleHistory(trimmed);
+            return await executeLs(this.web.platform.fs, args, { header: this.describeListingContext() });
+        }
+
         if (this.engine === null) {
             if (normalized === "help") {
                 return {
                     kind: "output",
-                    message: "No config is loaded yet. Choose or paste one in the Config panel; run, list, status, clear and reload become available after that.",
+                    message: `${BROWSER_HELP_TEXT}\n\nNo config is loaded yet: 'ls' still lists the workspace; run, list, status, clear and reload need a config from the Config panel.`,
                 };
             }
             return {
                 kind: "error",
-                message: "No config loaded yet. Pick a config source in the Config panel (or paste one) and try again.",
+                message: "No config loaded yet. 'ls' can still list the workspace. Pick a config source in the Config panel (or paste one) and try again.",
             };
         }
 

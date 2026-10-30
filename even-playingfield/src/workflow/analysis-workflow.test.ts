@@ -153,8 +153,28 @@ describe("executeAnalysisWorkflow", () => {
         const result = await executeAnalysisWorkflow(workflow, 1, deps);
 
         expect(result.status).toBe("failed");
-        expect(result.error).toBe("No files found for workflow, skipping...");
+        expect(result.error).toBe("No files found for workflow, skipping... Searched: *.java in src");
         expect(calls).toHaveLength(0);
+    });
+
+    test("finds files for a single-alternative brace glob and a trailing-slash directory", async () => {
+        // Reproduces the browser report: `*.{cs}` in `src/` was read as literal
+        // text by picomatch and reported "No files found for workflow".
+        const config = buildConfig();
+        const { client, calls } = createFakeClient();
+        const { deps } = await buildDeps(config, client);
+
+        const workflow = {
+            ...config.analysis_workflows[0]!,
+            input_files_searches: [{ file_glob: "*.{cs}", search_directory: "src/", excluded_files: ["Helper.cs"] }],
+        };
+        const result = await executeAnalysisWorkflow(workflow, 1, deps);
+
+        expect(result.status).toBe("succeeded");
+        expect(result.error).toBeUndefined();
+        const payload = calls[0]!.content.map((part) => part.text).join("\n");
+        expect(payload).toContain("Program.cs");
+        expect(payload).not.toContain("Helper.cs");
     });
 
     test("reports model failures as a failed run", async () => {

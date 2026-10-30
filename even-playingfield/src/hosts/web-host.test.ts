@@ -240,6 +240,38 @@ describe("WebEPF", () => {
         expect(requestedPaths.some((path) => path.endsWith("/responses") || path.endsWith("/chat/completions"))).toBe(true);
     });
 
+    test("lists workspace files with ls, before and after a config is loaded", async () => {
+        const empty = await epf.executeCommand("ls");
+        expect(empty.kind).toBe("output");
+        expect(empty.message).toContain("Workspace:");
+        expect(empty.message).toContain("Config: (none loaded)");
+        expect(empty.message).toContain("(empty)");
+
+        const fetched = await epf.fetchSource({ owner: "acme", repo: "demo", kind: "repo" });
+
+        const root = await epf.executeCommand("ls");
+        expect(root.kind).toBe("output");
+        expect(root.message).toContain(`Workspace: ${fetched.workspace.label}`);
+        expect(root.message).toContain(`Config: ${fetched.workspace.path}/epf.toml`);
+        expect(root.message).toContain("Listing the workspace root");
+        expect(root.message).toContain("README.md");
+        expect(root.message).toContain("src/");
+        expect(root.message).toContain("  Program.cs");
+
+        const nested = await epf.executeCommand("ls src");
+        expect(nested.message).toContain("Listing 'src'");
+        expect(nested.message).toContain("Helper.cs");
+        expect(nested.message).not.toContain("  epf.toml");
+
+        const shallow = await epf.executeCommand("ls --depth 1");
+        expect(shallow.message).toContain("src/");
+        expect(shallow.message).not.toContain("Program.cs");
+
+        const missing = await epf.executeCommand("ls nope");
+        expect(missing.kind).toBe("error");
+        expect(missing.message).toContain("Not found in the workspace: 'nope'");
+    });
+
     test("console commands share the CLI dispatcher and clear removes output files", async () => {
         const fetched = await epf.fetchSource({ owner: "acme", repo: "demo", kind: "repo" });
         await epf.setActiveWorkspace(fetched.workspace.path);

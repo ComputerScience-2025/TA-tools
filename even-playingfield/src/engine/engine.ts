@@ -6,7 +6,7 @@ import type { WorkflowDependencies } from "../workflow/index.ts";
 import { loadConfig } from "../util/config-loader.ts";
 import { LlmClient, type CompletionMetrics } from "../util/llm.ts";
 import type { Config, ConfigSource } from "../util/config-loader.ts";
-import type { LogLevel, Logger, Platform } from "../platform/types.ts";
+import type { LogLevel, Logger, Platform, VirtualFileSystem } from "../platform/types.ts";
 
 export type WorkflowRunResult = {
     slug: string;
@@ -294,6 +294,15 @@ export class Engine {
     /** Where the current config was loaded from (undefined for injected configs). */
     getConfigSource(): ConfigSource | undefined {
         return this.configSource;
+    }
+
+    /**
+     * Filesystem the engine resolves paths against: the working directory on the
+     * CLI, the active workspace in the browser. Used by the `ls` command so it
+     * lists exactly the tree workflows search.
+     */
+    getFileSystem(): VirtualFileSystem {
+        return this.platform.fs;
     }
 
     /** List all configured workflow slugs grouped by type. */
