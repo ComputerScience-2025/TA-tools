@@ -71,6 +71,21 @@ export function resolvePath(base: string, path: string): string {
     return normalizePath(`${base}/${path}`);
 }
 
+/**
+ * True when `path` is `root` or a child of it. Both paths are normalized
+ * first, so a trailing slash (or a relative form) cannot defeat the check.
+ * Used by every "may this write/delete leave the workspace?" guard.
+ */
+export function isWithinPath(path: string, root: string): boolean {
+    const normalizedRoot = normalizePath(root);
+    if (normalizedRoot.length === 0) {
+        return false;
+    }
+    const normalizedPath = normalizePath(path);
+    const prefix = normalizedRoot.endsWith("/") ? normalizedRoot : `${normalizedRoot}/`;
+    return normalizedPath === normalizedRoot || normalizedPath.startsWith(prefix);
+}
+
 /** Parent directory of an absolute path. */
 export function dirnamePath(path: string): string {
     const normalized = normalizePath(path);

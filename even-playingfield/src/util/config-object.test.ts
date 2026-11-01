@@ -155,6 +155,14 @@ describe("config documents", () => {
         expect(text.indexOf("[output_viewing]")).toBeLessThan(text.indexOf("[llm.providers"));
     });
 
+    test("orders every top-level section the schema knows about", () => {
+        const text = serializeConfigDocument(createDefaultDocument());
+        const positions = ["[output_viewing]", "[sessions]", "[llm.providers", "[[analysis_workflows]]", "[[testing_workflows]]"]
+            .map((marker) => text.indexOf(marker));
+        expect(positions.every((position) => position >= 0)).toBe(true);
+        expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    });
+
     test("preserves unknown fields", () => {
         const raw = createDefaultDocument();
         raw["future_section"] = { enabled: true };

@@ -35,6 +35,7 @@ import {
 import { CURRENT_CONFIG_VERSION } from "$epf/util/config-schema.ts";
 import { detectConfigVersion, migrationSteps } from "$epf/util/config-migrations.ts";
 import { hashText } from "$epf/util/editor-draft.ts";
+import { errorMessage } from "$epf/util/errors.ts";
 import type {
 	ConfigPath,
 	RawConfigObject
@@ -246,7 +247,7 @@ export class ConfigEditor {
 			const raw = TOML.parse(text);
 			return { raw, version: detectConfigVersion(raw) };
 		} catch (error) {
-			throw new Error(error instanceof Error ? error.message : String(error));
+			throw new Error(errorMessage(error));
 		}
 	}
 
@@ -283,7 +284,7 @@ export class ConfigEditor {
 			try {
 				steps = migrationSteps(version);
 			} catch (error) {
-				this.error = error instanceof Error ? error.message : String(error);
+				this.error = errorMessage(error);
 			}
 			this.raw = raw;
 			this.pendingMigration = { text, raw, fromVersion: version, source: source ?? { kind: "inline", text, label: "config" }, steps };
@@ -340,7 +341,7 @@ export class ConfigEditor {
 			this.mode = "form";
 			this.changed();
 		} catch (error) {
-			this.error = error instanceof Error ? error.message : String(error);
+			this.error = errorMessage(error);
 		}
 	}
 
@@ -386,7 +387,7 @@ export class ConfigEditor {
 			this.previewText = serializeConfigDocument(this.raw);
 		} catch (error) {
 			this.previewText = "";
-			this.error = error instanceof Error ? error.message : String(error);
+			this.error = errorMessage(error);
 		}
 		if (options.validate === false || this.readOnly) {
 			this.validation = null;
@@ -764,7 +765,7 @@ export class ConfigEditor {
 				this.openText(baseText, baseSource);
 				this.dirty = false;
 			} catch (error) {
-				this.error = error instanceof Error ? error.message : String(error);
+				this.error = errorMessage(error);
 			}
 			return;
 		}
@@ -840,7 +841,7 @@ export class ConfigEditor {
 				}
 			})
 			.catch((error: unknown) => {
-				this.draftError = error instanceof Error ? error.message : String(error);
+				this.draftError = errorMessage(error);
 			});
 		await this.draftQueue;
 	}

@@ -288,7 +288,12 @@ describe("WebEPF", () => {
 
         const clearResult = await epf.executeCommand("clear");
         expect(clearResult.kind).toBe("output");
+        expect(clearResult.message).toContain("(1 file(s))");
         expect((await epf.listFiles(fetched.workspace.path)).map((file) => file.path)).not.toContain("repo_analysis.epf.md");
+        // The engine's own records are forgotten as well, so a later `status`
+        // cannot resurrect the deleted names.
+        expect(epf.getEngine()?.getStatus().completedFiles).toEqual([]);
+        expect((await epf.executeCommand("status")).message).toContain("Output files: 0");
 
         const exitResult = await epf.executeCommand("exit");
         expect(exitResult.message).toContain("close the tab");
@@ -372,7 +377,8 @@ describe("WebEPF", () => {
 
     test("rejects saving a config outside the active workspace", async () => {
         const workspace = epf.requireActiveWorkspace();
-        await expect(epf.saveConfigText(REPO_CONFIG, "../escape.toml")).rejects.toThrow(/outside the workspace/);
+        await expect(epf.saveConfigToWorkspace(REPO_CONFIG, "../escape.toml", { overwrite: true }))
+            .rejects.toThrow(/outside the workspace/);
         expect(await epf.web.storageFs.exists(`${workspace.path}/../escape.toml`)).toBe(false);
     });
 
@@ -555,7 +561,7 @@ search_directory = "src"
         expect(epf.hasConfig()).toBe(true);
         expect(epf.getConfigText()).resolves.toBe(REPO_CONFIG);
 
-        const savedSource = await epf.saveConfigText(REPO_CONFIG, "eval/epf.toml");
+        const savedSource = await epf.saveConfigToWorkspace(REPO_CONFIG, "eval/epf.toml", { overwrite: true });
         expect(savedSource).toEqual({
             kind: "path",
             path: `${epf.requireActiveWorkspace().path}/eval/epf.toml`,

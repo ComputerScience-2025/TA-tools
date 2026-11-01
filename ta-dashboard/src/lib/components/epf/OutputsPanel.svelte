@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
+	import { errorMessage } from "$epf/util/errors.ts";
+
 	import FileBrowser from "$lib/components/FileBrowser.svelte";
 	import SessionChat from "$lib/components/epf/SessionChat.svelte";
 	import { epfSession } from "$lib/epf/session";
@@ -19,7 +21,7 @@
 				await epfSession.ensure();
 				source = createVfsFileSource(epfSession, "browser workspace");
 			} catch (err) {
-				message = err instanceof Error ? err.message : String(err);
+				message = errorMessage(err);
 			}
 		})();
 	});
@@ -35,7 +37,7 @@
 			await epfSession.clearOutputs();
 			message = "Output files removed. Sources and config were kept.";
 		} catch (err) {
-			message = err instanceof Error ? err.message : String(err);
+			message = errorMessage(err);
 		}
 	};
 </script>

@@ -4,6 +4,7 @@ import { executeAnalysisWorkflow, type AnalysisWorkflowResult } from "../workflo
 import { executeTestingWorkflow, type TestingWorkflowResult } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
 import { loadConfig } from "../util/config-loader.ts";
+import { errorMessage } from "../util/errors.ts";
 import { LlmClient, type ChatStreamHandlers, type CompletionMetrics } from "../util/llm.ts";
 import { ChatService, type ChatClient, type ChatOutcome } from "../util/chat-service.ts";
 import { SessionStore, sessionDirectory } from "../util/session-store.ts";
@@ -134,7 +135,7 @@ export class Engine {
             try {
                 listener(event);
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = errorMessage(error);
                 this.platform.logger.log("error", `Engine event listener failed: ${message}`);
             }
         }
@@ -221,7 +222,7 @@ export class Engine {
                     this.emit({ type: "session-changed", id: result.sessionId });
                 }
             } else {
-                const errorMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+                const errorMsg = errorMessage(outcome.reason);
                 this.logger.log("warn", `Workflow '${run.slug}' run ${run.runNumber} failed: ${errorMsg}`, { data: [outcome.reason] });
                 const result: WorkflowRunResult = { slug: run.slug, runNumber: run.runNumber, status: "failed", error: errorMsg };
                 results.push(result);
@@ -253,9 +254,9 @@ export class Engine {
         this.chatService = this.createChatService();
     }
 
-    /** Clear output files. If slugs provided, only clear matching filenames. */
-    clearResults(slugFilter?: string[]): void {
-        this.outputViewer.clearFiles(slugFilter);
+    /** Forget every output file record. Files on disk are left alone. */
+    clearResults(): void {
+        this.outputViewer.clear();
         this.emit({ type: "files-changed" });
     }
 
@@ -263,30 +264,6 @@ export class Engine {
     clearResultFiles(names: readonly string[]): void {
         this.outputViewer.clearFileNames(names);
         this.emit({ type: "files-changed" });
-    }
-
-    /**
-     * Resolve the static filename prefix for each workflow matched by the slug filter.
-     * Uses the literal portion of `output_filename` before the first `[` placeholder,
-     * which is the stable, config-defined part of the filename regardless of the
-     * runtime values the placeholders take.
-     * Pass the result to clearResults() to accurately target the right output files.
-     *
-     * Filenames that start with a placeholder yield an empty prefix, which would
-     * match every file; those are dropped instead of returned.
-     */
-    resolveOutputFilePatterns(slugs?: string[]): string[] {
-        const onlySlugs = slugs && slugs.length > 0 ? slugs : undefined;
-        const allWorkflows = [
-            ...this.applyFilters(this.config.analysis_workflows, onlySlugs),
-            ...this.applyFilters(this.config.testing_workflows, onlySlugs),
-        ];
-        return allWorkflows
-            .map((w) => {
-                const bracketIdx = w.output_filename.indexOf("[");
-                return bracketIdx === -1 ? w.output_filename : w.output_filename.slice(0, bracketIdx);
-            })
-            .filter((prefix) => prefix.length > 0);
     }
 
     /**

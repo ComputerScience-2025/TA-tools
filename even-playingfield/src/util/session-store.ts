@@ -11,6 +11,7 @@
  */
 
 import { joinPath } from "../platform/path.ts";
+import { errorMessage } from "./errors.ts";
 import {
     ChatSessionSchema,
     SESSION_DIRECTORY_NAME,
@@ -82,7 +83,7 @@ export class SessionStore {
             try {
                 sessions.push(this.parse(await this.fs.readText(path), path));
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = errorMessage(error);
                 this.onWarning(`Skipping unreadable chat session '${entry.name}': ${message}`);
             }
         }
@@ -171,7 +172,7 @@ export class SessionStore {
                 await this.fs.remove(this.pathFor(session.id));
                 removed.push(session.id);
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = errorMessage(error);
                 this.onWarning(`Could not remove chat session '${session.id}': ${message}`);
             }
         }
@@ -197,7 +198,7 @@ export class SessionStore {
         try {
             raw = JSON.parse(text);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = errorMessage(error);
             throw new Error(`Invalid JSON in ${path}: ${message}`);
         }
         const parsed = ChatSessionSchema.safeParse(raw);

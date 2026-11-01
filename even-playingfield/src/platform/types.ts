@@ -91,6 +91,13 @@ export interface Logger {
     log(level: LogLevel, message: string, meta?: LogMeta): void;
 }
 
+/**
+ * Callback the LLM client uses for progress and retry notices. Declared here so
+ * workflows, the chat service and hosts all agree on one signature without
+ * resorting to `any`.
+ */
+export type LogSink = (message: string, ...data: unknown[]) => void;
+
 /** One captured log line. Hosts that keep a log (the web console) store these. */
 export type LogEntry = {
     level: LogLevel;

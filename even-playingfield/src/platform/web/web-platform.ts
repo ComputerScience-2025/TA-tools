@@ -8,13 +8,14 @@
 
 import { parse as parseToml } from "smol-toml";
 
-import { QuotaFileSystem, formatBytes } from "./quota-vfs.ts";
+import { QuotaFileSystem } from "./quota-vfs.ts";
 import { ScopedFileSystem } from "./scoped-vfs.ts";
 import { WebEnvProvider, WEB_ENV_KEY } from "./web-env.ts";
 import { WebLogBuffer } from "./web-logger.ts";
 import { WebStateStore, WEB_STATE_KEY, defaultStorage } from "./web-state.ts";
 import { WEB_WORKSPACE_ROOT, createZenFileSystem } from "./zen-vfs.ts";
 import { DEFAULT_CONFIG_FILE_NAME } from "../../util/config-loader.ts";
+import { formatBytes } from "../../util/format.ts";
 import { ShellUnavailableError } from "../types.ts";
 import type { KeyValueStorage } from "./web-state.ts";
 import type { QuotaEvent } from "./quota-vfs.ts";

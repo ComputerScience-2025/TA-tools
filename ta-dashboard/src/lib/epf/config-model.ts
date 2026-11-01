@@ -1,24 +1,14 @@
-import { basenamePath, relativePath } from "$epf/platform/path.ts";
+import { basenamePath, isWithinPath, relativePath } from "$epf/platform/path.ts";
 import { describeOutputFilenamePlaceholders } from "$epf/util/output-filename.ts";
+import { editorDraftKey } from "$epf/util/editor-draft.ts";
 
 import type { ConfigPath, RawConfigObject } from "$epf/util/config-object.ts";
 import type { ConfigFieldDescriptor } from "$epf/util/config-form-schema.ts";
 import type { ConfigSource } from "$epf/util/config-loader.ts";
 
 /** Stable key for drafts and the DOM. */
-export function sourceKey(source: ConfigSource | null): string {
-	if (source === null) {
-		return "new";
-	}
-	switch (source.kind) {
-		case "path":
-			return `path:${source.path}`;
-		case "url":
-			return `url:${source.url}`;
-		case "inline":
-			return `inline:${source.label}`;
-	}
-}
+export { editorDraftKey as sourceKey };
+
 
 export function sourceFileName(source: ConfigSource | null): string {
 	if (source === null) {
@@ -45,10 +35,6 @@ export function sourceFileName(source: ConfigSource | null): string {
 	}
 }
 
-export function isPathWithin(path: string, root: string): boolean {
-	const normalizedRoot = root.endsWith("/") ? root.slice(0, -1) : root;
-	return normalizedRoot.length > 0 && (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`));
-}
 
 export function sourceDisplayLabel(
 	source: ConfigSource | null,
@@ -60,10 +46,10 @@ export function sourceDisplayLabel(
 	}
 	switch (source.kind) {
 		case "path":
-			if (homeDir.length > 0 && isPathWithin(source.path, homeDir)) {
+			if (homeDir.length > 0 && isWithinPath(source.path, homeDir)) {
 				return `Library · ${basenamePath(source.path)}`;
 			}
-			if (workspacePath !== null && isPathWithin(source.path, workspacePath)) {
+			if (workspacePath !== null && isWithinPath(source.path, workspacePath)) {
 				return `Workspace · ${relativePath(workspacePath, source.path)}`;
 			}
 			return source.path;
@@ -444,20 +430,6 @@ export function duplicateArrayItemOverrides(
 		slug: uniqueName(existingSlugs(raw, collection), `${slug}-copy`),
 		output_filename: copyFileName(output, existingOutputNames(raw, collection))
 	};
-}
-
-export function formatBytes(bytes: number): string {
-	if (bytes < 1024) {
-		return `${bytes} B`;
-	}
-	const units = ["KB", "MB", "GB"];
-	let value = bytes / 1024;
-	let index = 0;
-	while (value >= 1024 && index < units.length - 1) {
-		value /= 1024;
-		index += 1;
-	}
-	return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[index]}`;
 }
 
 export function downloadTextFile(filename: string, text: string): void {

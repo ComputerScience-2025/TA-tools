@@ -4,6 +4,9 @@
 	import { epfShowWorkspaceFiles, epfAutoRunAfterFetch } from "$lib/epf/settings";
 	import { epfSession } from "$lib/epf/session";
 
+	import { GITHUB_PAT_ENV_VAR } from "$epf/util/env-vars.ts";
+	import { errorMessage } from "$epf/util/errors.ts";
+	import { formatBytes } from "$epf/util/format.ts";
 	import type { FetchSourceSummary } from "$epf/hosts/web-host.ts";
 	import type { WorkspaceState } from "$epf/platform/web/web-state.ts";
 
@@ -23,9 +26,8 @@
 	let folderInput: HTMLInputElement;
 
 	const { workspaces, activeWorkspace, files, busy, envValues, configLoaded } = epfSession;
-	const candidates = $derived($workspaces);
 	const tokenSet = $derived(
-		$envValues.some((entry) => entry.name === "EPF_DOWNLOAD_GITHUB_PAT" && entry.value.length > 0)
+		$envValues.some((entry) => entry.name === GITHUB_PAT_ENV_VAR && entry.value.length > 0)
 	);
 
 	onMount(() => {
@@ -67,7 +69,7 @@
 				await epfSession.run();
 			}
 		} catch (err) {
-			message = err instanceof Error ? err.message : String(err);
+			message = errorMessage(err);
 		}
 	};
 
@@ -84,7 +86,7 @@
 			const workspace = await epfSession.createWorkspace(label.trim().length > 0 ? label.trim() : "workspace", "empty");
 			message = `Created workspace '${workspace.label}'.`;
 		} catch (err) {
-			message = err instanceof Error ? err.message : String(err);
+			message = errorMessage(err);
 		}
 	};
 
@@ -114,7 +116,7 @@
 			await epfSession.uploadFiles(payload, targetDirectory.trim());
 			message = `Uploaded ${payload.length} file(s) to ${$activeWorkspace?.label ?? "the workspace"}${targetDirectory.trim().length > 0 ? `/${targetDirectory.trim()}` : ""}.`;
 		} catch (err) {
-			message = err instanceof Error ? err.message : String(err);
+			message = errorMessage(err);
 		}
 	};
 
@@ -137,7 +139,7 @@
 		try {
 			await epfSession.activateWorkspace(workspace.path);
 		} catch (err) {
-			message = err instanceof Error ? err.message : String(err);
+			message = errorMessage(err);
 		}
 	};
 
@@ -151,7 +153,7 @@
 		try {
 			await epfSession.removeWorkspace(workspace.path);
 		} catch (err) {
-			message = err instanceof Error ? err.message : String(err);
+			message = errorMessage(err);
 		}
 	};
 
@@ -160,20 +162,6 @@
 			return;
 		}
 		epfSession.setWorkspacePinned(workspace.path, !workspace.pinned);
-	};
-
-	const formatBytes = (bytes: number): string => {
-		if (bytes < 1024) {
-			return `${bytes} B`;
-		}
-		const units = ["KB", "MB", "GB"];
-		let value = bytes / 1024;
-		let index = 0;
-		while (value >= 1024 && index < units.length - 1) {
-			value /= 1024;
-			index += 1;
-		}
-		return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[index]}`;
 	};
 </script>
 
@@ -235,7 +223,7 @@
 		</div>
 		<p class="help">
 			Token for private repositories: <strong>{tokenSet ? "see the Config tab" : "not set"}</strong>
-			(<code>EPF_DOWNLOAD_GITHUB_PAT</code>).
+			(<code>{GITHUB_PAT_ENV_VAR}</code>).
 		</p>
 
 		<h3 class="subtitle is-6 mt-5">Manual upload</h3>
@@ -288,7 +276,7 @@
 			<h3 class="subtitle is-6">Workspaces</h3>
 			<button class="button is-small" onclick={() => void createEmptyWorkspace()} disabled={$busy}>New workspace</button>
 		</div>
-		{#if candidates.length === 0}
+		{#if $workspaces.length === 0}
 			<p class="is-size-7 has-text-grey">No workspaces yet. Fetch a repository, upload files, or create an empty workspace.</p>
 		{:else}
 			<table class="table is-fullwidth is-narrow is-size-7">
@@ -301,7 +289,7 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each candidates as workspace (workspace.path)}
+					{#each $workspaces as workspace (workspace.path)}
 						<tr class:is-current={$activeWorkspace?.path === workspace.path}>
 							<td>
 								<button class="button is-small is-ghost is-fullwidth has-text-left" onclick={() => void activate(workspace)} disabled={$busy}>

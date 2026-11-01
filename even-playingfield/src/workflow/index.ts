@@ -1,8 +1,8 @@
-import type {OutputViewer} from "../util/output-viewer.ts";
-import type {Config} from "../util/config-loader.ts";
-import type {LlmClient} from "../util/llm.ts";
-import type {SessionStore} from "../util/session-store.ts";
-import type {EnvProvider, Logger, ShellRunner, VirtualFileSystem} from "../platform/types.ts";
+import type { OutputViewer } from "../util/output-viewer.ts";
+import type { Config } from "../util/config-loader.ts";
+import type { LlmClient } from "../util/llm.ts";
+import type { SessionStore } from "../util/session-store.ts";
+import type { EnvProvider, Logger, ShellRunner, VirtualFileSystem } from "../platform/types.ts";
 
 /**
  * The slice of {@link LlmClient} the workflows call. Typed structurally so a
@@ -11,13 +11,13 @@ import type {EnvProvider, Logger, ShellRunner, VirtualFileSystem} from "../platf
 export type CompletionClient = Pick<LlmClient, "generateCompletion">;
 
 export type WorkflowDependencies = {
-    outputViewer: OutputViewer,
-    config: Config,
-    llmClient: CompletionClient,
+    outputViewer: OutputViewer;
+    config: Config;
+    llmClient: CompletionClient;
     /** Absent when session recording is disabled or the host has no home dir. */
-    sessionStore?: SessionStore,
-    fs: VirtualFileSystem,
-    env: EnvProvider,
-    shell: ShellRunner,
-    logger: Logger,
-}
+    sessionStore?: SessionStore;
+    fs: VirtualFileSystem;
+    env: EnvProvider;
+    shell: ShellRunner;
+    logger: Logger;
+};

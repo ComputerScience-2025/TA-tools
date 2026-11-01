@@ -39,11 +39,3 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
         example: "ghp_…",
     },
 ];
-
-export function getEnvVarSpec(name: string): EnvVarSpec | undefined {
-    return ENV_VARS.find((spec) => spec.name === name);
-}
-
-export function envVarsByScope(scope: EnvVarScope): EnvVarSpec[] {
-    return ENV_VARS.filter((spec) => spec.scope === scope);
-}

@@ -55,6 +55,13 @@ function fakeChatClient(): ChatClient {
 }
 
 async function buildEngine(root: string): Promise<{ engine: Engine; store: SessionStore; fs: Platform["fs"] }> {
+    return await buildEngineWithConfig(root, buildConfig());
+}
+
+async function buildEngineWithConfig(
+    root: string,
+    config: Config,
+): Promise<{ engine: Engine; store: SessionStore; fs: Platform["fs"] }> {
     const mount = await createZenFileSystem({ persist: false, root });
     const platform: Platform = {
         fs: mount.fs,
@@ -68,11 +75,29 @@ async function buildEngine(root: string): Promise<{ engine: Engine; store: Sessi
         homeDir: `${root}/home`,
     };
     const store = new SessionStore(mount.fs, `${root}/home/.even-pf/sessions`, { origin: "web" });
-    const engine = new Engine(buildConfig(), platform, undefined, {
+    const engine = new Engine(config, platform, undefined, {
         sessionStore: store,
         chatClient: fakeChatClient(),
     });
     return { engine, store, fs: mount.fs };
+}
+
+/** Two workflows whose output names overlap, as in the browser host's test. */
+function buildOverlappingOutputConfig(): Config {
+    return ConfigSchema.parse({
+        version: CURRENT_CONFIG_VERSION,
+        output_viewing: { mode: "webui", api_port: 0, webui_base_url: "https://example.test" },
+        llm: {
+            providers: { test: { sdk: "openai", endpoint: "", api_key: "test-key" } },
+            models: { general_analysis: { provider: "test", model_name: "test-model" } },
+            prompt_replacement: {},
+        },
+        analysis_workflows: [
+            { slug: "first", output_filename: "result.md", prompt: "Review." },
+            { slug: "second", output_filename: "x-result.md-evil.md", prompt: "Review." },
+        ],
+        testing_workflows: [],
+    });
 }
 
 async function createSession(store: SessionStore) {
@@ -129,5 +154,28 @@ describe("Engine chat sessions", () => {
     test("reports a missing session clearly", async () => {
         const { engine } = await buildEngine("/engine-chat-missing");
         await expect(engine.chatSession("does-not-exist", "hello")).rejects.toThrow("Unknown chat session");
+    });
+});
+
+describe("Engine output bookkeeping", () => {
+    test("scopes output names per workflow with anchored patterns", async () => {
+        const { engine } = await buildEngineWithConfig("/engine-outputs", buildOverlappingOutputConfig());
+        const known = ["result.md", "x-result.md-evil.md", "unrelated.md"];
+
+        expect(engine.resolveOutputFileNames(known, ["first"])).toEqual(["result.md"]);
+        expect(engine.resolveOutputFileNames(known, ["second"])).toEqual(["x-result.md-evil.md"]);
+        expect(engine.resolveOutputFileNames(known, ["nope"])).toEqual([]);
+        expect(engine.resolveOutputFileNames(known)).toEqual(["result.md", "x-result.md-evil.md"]);
+    });
+
+    test("clearResults forgets every record without touching the filesystem", async () => {
+        const { engine, fs } = await buildEngineWithConfig("/engine-outputs-clear", buildOverlappingOutputConfig());
+        await engine.outputViewer.addFile("result.md", { type: "markdown", content: "x" });
+
+        expect(engine.getStatus().completedFiles).toEqual(["result.md"]);
+        engine.clearResults();
+
+        expect(engine.getStatus().completedFiles).toEqual([]);
+        await expect(fs.readText("result.md")).resolves.toBe("x");
     });
 });

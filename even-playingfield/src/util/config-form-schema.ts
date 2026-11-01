@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { ConfigSchema } from "./config-schema.ts";
 import { cloneConfigValue, isRecord } from "./config-object.ts";
+import { errorMessage } from "./errors.ts";
 import type { RawConfigObject } from "./config-object.ts";
 
 export type ConfigFieldKind =
@@ -271,7 +272,7 @@ export function buildConfigFormDescriptor(): ConfigFormDescriptorResult {
     } catch (error) {
         return {
             ok: false,
-            message: error instanceof Error ? error.message : String(error),
+            message: errorMessage(error),
         };
     }
 }

@@ -4,6 +4,8 @@
 
 	import "@xterm/xterm/css/xterm.css";
 
+	import { errorMessage } from "$epf/util/errors.ts";
+
 	import { epfSession } from "$lib/epf/session";
 	import { darkMode } from "$lib/stores";
 
@@ -108,7 +110,7 @@
 			await navigator.clipboard.writeText($logs.map((entry) => epfSession.formatLog(entry)).join("\n"));
 			toast.push("Log copied.");
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			toast.push(`Could not copy the log: ${message}`);
 		}
 	};
@@ -191,7 +193,7 @@
 			try {
 				await epfSession.ensure();
 			} catch (err) {
-				rl.println(`\x1b[31mFailed to start the session: ${err instanceof Error ? err.message : String(err)}\x1b[0m`);
+				rl.println(`\x1b[31mFailed to start the session: ${errorMessage(err)}\x1b[0m`);
 				unsubscribeTheme();
 				return;
 			}
@@ -234,7 +236,7 @@
 					}
 				} catch (err) {
 					if (!disposed) {
-						emit(colour("error", err instanceof Error ? err.message : String(err)));
+						emit(colour("error", errorMessage(err)));
 					}
 				} finally {
 					running = false;
@@ -281,7 +283,7 @@
 				const result = await epfSession.execute(line);
 				writeEntry({ level: result.kind === "error" ? "error" : "info", message: result.message });
 			} catch (err) {
-				writeEntry({ level: "error", message: err instanceof Error ? err.message : String(err) });
+				writeEntry({ level: "error", message: errorMessage(err) });
 			} finally {
 				running = false;
 			}

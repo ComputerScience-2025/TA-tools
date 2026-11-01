@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
     coerceEditorDraftFile,
     createEmptyEditorDraftFile,
+    editorDraftKey,
     hashText,
     pruneEditorDrafts,
 } from "./editor-draft.ts";
@@ -48,5 +49,13 @@ describe("editor drafts", () => {
         expect(Object.keys(file.drafts).length).toBe(10);
         expect(file.drafts["draft-0"]).toBeUndefined();
         expect(file.drafts["draft-11"]).toBeDefined();
+    });
+
+    test("derives one stable key per source kind", () => {
+        expect(editorDraftKey(null)).toBe("new");
+        expect(editorDraftKey({ kind: "path", path: "/epf/home/epf.toml" })).toBe("path:/epf/home/epf.toml");
+        expect(editorDraftKey({ kind: "url", url: "https://example.test/epf.toml" }))
+            .toBe("url:https://example.test/epf.toml");
+        expect(editorDraftKey({ kind: "inline", label: "session config" })).toBe("inline:session config");
     });
 });

@@ -1,5 +1,6 @@
 import type { Engine } from "./engine/index.ts";
 import { parseAndExecute } from "./command-handler.ts";
+import { errorMessage } from "./util/errors.ts";
 
 const CORS_HEADERS: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
@@ -65,7 +66,7 @@ export function startApiServer(engine: Engine, port: number): ApiServerHandle {
                     const result = await parseAndExecute(engine, command);
                     return jsonResponse(result);
                 } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
+                    const message = errorMessage(err);
                     return jsonResponse({ kind: "error", message: `Server error: ${message}` }, 500);
                 }
             },

@@ -11,6 +11,7 @@ import { configure, fs as zenFs, InMemory } from "@zenfs/core";
 import { IndexedDB } from "@zenfs/dom";
 
 import { dirnamePath, joinPath, resolvePath } from "../path.ts";
+import { errorMessage } from "../../util/errors.ts";
 import type { DirEntry, FileStat, VirtualFileSystem } from "../types.ts";
 
 /** Workspace root inside the ZenFS tree. */
@@ -55,7 +56,7 @@ export async function createZenFileSystem(options: ZenMountOptions = {}): Promis
             await configure({ mounts: { "/": { backend: IndexedDB, storeName } } });
             persistent = true;
         } catch (error) {
-            fallbackReason = error instanceof Error ? error.message : String(error);
+            fallbackReason = errorMessage(error);
             await configure({ mounts: { "/": InMemory } });
         }
     } else {

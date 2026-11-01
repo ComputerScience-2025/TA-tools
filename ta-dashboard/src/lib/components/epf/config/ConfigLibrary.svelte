@@ -3,9 +3,11 @@
 
 	import { basenamePath, joinPath } from "$epf/platform/path.ts";
 	import { toConfigSource } from "$epf/util/config-loader.ts";
+	import { errorMessage } from "$epf/util/errors.ts";
+	import { formatBytes } from "$epf/util/format.ts";
 
 	import { configEditor } from "$lib/epf/config-editor.svelte.ts";
-	import { downloadTextFile, formatBytes, readTextFile } from "$lib/epf/config-model.ts";
+	import { downloadTextFile, readTextFile } from "$lib/epf/config-model.ts";
 	import { epfSession } from "$lib/epf/session.ts";
 
 	interface Props {
@@ -37,7 +39,7 @@
 	};
 
 	const fail = (err: unknown): void => {
-		error = err instanceof Error ? err.message : String(err);
+		error = errorMessage(err);
 	};
 
 	const refreshWorkspaceConfigs = async (): Promise<void> => {

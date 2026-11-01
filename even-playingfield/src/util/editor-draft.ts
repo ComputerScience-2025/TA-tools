@@ -28,6 +28,34 @@ export type EditorDraftFile = {
     drafts: Record<string, EditorDraft>;
 };
 
+/** Draft key for a document that has no source yet ("New config"). */
+export const NEW_DRAFT_KEY = "new";
+
+/** The slice of `ConfigSource` a draft key needs (structural, no import). */
+export type DraftSource =
+    | { kind: "path"; path: string }
+    | { kind: "url"; url: string }
+    | { kind: "inline"; label: string };
+
+/**
+ * Key a draft and its DOM ids use for a config source. One definition shared
+ * by the host (which moves/deletes drafts when a file is renamed) and the
+ * editor (which reads and writes them), so the two cannot disagree.
+ */
+export function editorDraftKey(source: DraftSource | null): string {
+    if (source === null) {
+        return NEW_DRAFT_KEY;
+    }
+    switch (source.kind) {
+        case "path":
+            return `path:${source.path}`;
+        case "url":
+            return `url:${source.url}`;
+        case "inline":
+            return `inline:${source.label}`;
+    }
+}
+
 export function createEmptyEditorDraftFile(): EditorDraftFile {
     return { version: EDITOR_DRAFT_VERSION, drafts: {} };
 }

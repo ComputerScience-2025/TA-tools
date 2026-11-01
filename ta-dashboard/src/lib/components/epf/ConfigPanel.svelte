@@ -4,6 +4,8 @@
 	import { configFileNameProblem, configRelativePathProblem } from "$epf/util/config-files.ts";
 	import { CURRENT_CONFIG_VERSION } from "$epf/util/config-schema.ts";
 	import { ENV_VARS } from "$epf/util/env-vars.ts";
+	import { errorMessage } from "$epf/util/errors.ts";
+	import { isWithinPath } from "$epf/platform/path.ts";
 
 	import ConfigLibrary from "$lib/components/epf/config/ConfigLibrary.svelte";
 	import ConfigNode from "$lib/components/epf/config/ConfigNode.svelte";
@@ -74,9 +76,7 @@
 	);
 	const sourceIsHome = $derived.by(() => {
 		const source = configEditor.source;
-		return source?.kind === "path" &&
-			homeDir.length > 0 &&
-			source.path.startsWith(`${homeDir.replace(/\/+$/, "")}/`);
+		return source?.kind === "path" && homeDir.length > 0 && isWithinPath(source.path, homeDir);
 	});
 
 	const resetFeedback = (): void => {
@@ -86,7 +86,7 @@
 	};
 
 	const fail = (err: unknown): void => {
-		const text = err instanceof Error ? err.message : String(err);
+		const text = errorMessage(err);
 		message = text;
 		actionIssues = text.split("\n");
 	};
@@ -104,7 +104,7 @@
 			try {
 				await epfSession.ensure();
 			} catch (err) {
-				loadError = err instanceof Error ? err.message : String(err);
+				loadError = errorMessage(err);
 				return;
 			}
 			syncEnvFromSession();
@@ -139,7 +139,7 @@
 			try {
 				configEditor.openText(text, source);
 			} catch (err) {
-				loadError = err instanceof Error ? err.message : String(err);
+				loadError = errorMessage(err);
 			}
 		} else {
 			configEditor.markExternalChange();
@@ -183,7 +183,7 @@
 				lastDraftCheckKey = configEditor.sourceKey;
 			}
 		} catch (err) {
-			loadError = err instanceof Error ? err.message : String(err);
+			loadError = errorMessage(err);
 		} finally {
 			loading = false;
 		}
@@ -216,7 +216,7 @@
 				};
 			}
 		} catch (err) {
-			message = `Could not restore the editor draft: ${err instanceof Error ? err.message : String(err)}`;
+			message = `Could not restore the editor draft: ${errorMessage(err)}`;
 		}
 	};
 
@@ -352,7 +352,7 @@
 			showSaveAs = false;
 			message = `Saved ${sourceFileName(source)}.`;
 		} catch (err) {
-			saveError = err instanceof Error ? err.message : String(err);
+			saveError = errorMessage(err);
 		}
 	};
 
@@ -387,7 +387,7 @@
 			showRename = false;
 			message = `Renamed the config to ${sourceFileName(next)}.`;
 		} catch (err) {
-			renameError = err instanceof Error ? err.message : String(err);
+			renameError = errorMessage(err);
 		}
 	};
 

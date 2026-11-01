@@ -7,6 +7,8 @@
  * in the ZenFS store instead.
  */
 
+import { isWithinPath } from "../path.ts";
+
 export type KeyValueStorage = {
     getItem(key: string): string | null;
     setItem(key: string, value: string): void;
@@ -355,8 +357,7 @@ export class WebStateStore {
         this.update((state) => {
             state.workspaces = state.workspaces.filter((entry) => entry.path !== path);
             delete state.outputs[path];
-            if (state.configSource?.kind === "path" &&
-                (state.configSource.path === path || state.configSource.path.startsWith(`${path}/`))) {
+            if (state.configSource?.kind === "path" && isWithinPath(state.configSource.path, path)) {
                 state.configSource = null;
             }
             if (state.activeWorkspace === path) {

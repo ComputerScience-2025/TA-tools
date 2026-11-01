@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ConfigPath } from "$epf/util/config-object.ts";
 	import type { ConfigFieldDescriptor } from "$epf/util/config-form-schema.ts";
+	import { errorMessage } from "$epf/util/errors.ts";
 
 	import MarkdownField from "$lib/components/epf/config/MarkdownField.svelte";
 	import { configEditor, configFormDescriptor, configFormError } from "$lib/epf/config-editor.svelte.ts";
@@ -148,7 +149,7 @@
 			delete keyDrafts[pointer];
 			delete keyErrors[pointer];
 		} catch (error) {
-			keyErrors[pointer] = error instanceof Error ? error.message : String(error);
+			keyErrors[pointer] = errorMessage(error);
 		}
 	};
 
@@ -177,7 +178,7 @@
 			adding[pointer] = false;
 			delete rowErrors[`add:${pointer}`];
 		} catch (error) {
-			rowErrors[`add:${pointer}`] = error instanceof Error ? error.message : String(error);
+			rowErrors[`add:${pointer}`] = errorMessage(error);
 		}
 	};
 
@@ -190,7 +191,7 @@
 			configEditor.deleteRecordEntry(path, key);
 			delete rowErrors[`delete:${pointer}`];
 		} catch (error) {
-			rowErrors[`delete:${pointer}`] = error instanceof Error ? error.message : String(error);
+			rowErrors[`delete:${pointer}`] = errorMessage(error);
 		}
 	};
 
@@ -200,7 +201,7 @@
 			configEditor.duplicateRecordEntry(path, key);
 			delete rowErrors[`delete:${pointer}`];
 		} catch (error) {
-			rowErrors[`delete:${pointer}`] = error instanceof Error ? error.message : String(error);
+			rowErrors[`delete:${pointer}`] = errorMessage(error);
 		}
 	};
 
@@ -213,7 +214,7 @@
 			configEditor.addArrayItem(path, descriptor);
 			delete rowErrors[arrayPointer(path)];
 		} catch (error) {
-			rowErrors[arrayPointer(path)] = error instanceof Error ? error.message : String(error);
+			rowErrors[arrayPointer(path)] = errorMessage(error);
 		}
 	};
 
@@ -225,7 +226,7 @@
 			configEditor.deleteArrayItem(path, index);
 			delete rowErrors[arrayPointer(path)];
 		} catch (error) {
-			rowErrors[arrayPointer(path)] = error instanceof Error ? error.message : String(error);
+			rowErrors[arrayPointer(path)] = errorMessage(error);
 		}
 	};
 
@@ -234,7 +235,7 @@
 			configEditor.duplicateArrayItem(path, index);
 			delete rowErrors[arrayPointer(path)];
 		} catch (error) {
-			rowErrors[arrayPointer(path)] = error instanceof Error ? error.message : String(error);
+			rowErrors[arrayPointer(path)] = errorMessage(error);
 		}
 	};
 </script>

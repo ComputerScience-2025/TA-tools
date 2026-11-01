@@ -4,7 +4,8 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 
 import { ProviderSDKEnum, type LLMConfig, type ModelConfig } from "./config-schema.ts";
-
+import { errorMessage } from "./errors.ts";
+import type { LogSink } from "../platform/types.ts";
 
 type UserContent = string | Array<{ type: "text"; text: string }>;
 
@@ -116,8 +117,10 @@ export class LlmClient {
         return provider;
     }
 
-    private buildProviderOptions(modelSettings: ModelConfig,
-                                 sdk: ProviderSDKEnum): Record<string, Record<string, JSONValue>> {
+    private buildProviderOptions(
+        modelSettings: ModelConfig,
+        sdk: ProviderSDKEnum,
+    ): Record<string, Record<string, JSONValue>> {
         // We intentionally support only provider-native reasoning-level options.
         // Budget-based thinking (Anthropic thinking.budgetTokens / Google thinkingConfig.thinkingBudget)
         // is not supported because those models are considered old for this project.
@@ -159,8 +162,10 @@ export class LlmClient {
      * Replace `{{name}}` placeholders in the system prompt and user content.
      * Workflow runs use this; chat turns replay already-resolved text verbatim.
      */
-    private applyPromptReplacements(systemPrompt: string,
-                                    content: UserContent): { systemPrompt: string; content: UserContent; replacedCount: number } {
+    private applyPromptReplacements(
+        systemPrompt: string,
+        content: UserContent,
+    ): { systemPrompt: string; content: UserContent; replacedCount: number } {
         let replacedCount = 0;
         for (const [replacementKey, replacementValue] of Object.entries(this.llm.prompt_replacement)) {
             if (systemPrompt.includes(replacementKey)) { replacedCount++; }
@@ -185,12 +190,14 @@ export class LlmClient {
         return { systemPrompt, content, replacedCount };
     }
 
-    private buildMetrics(model: string,
-                         modelSettings: ModelConfig,
-                         usage: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null },
-                         finishReason: string,
-                         latencyMs: number,
-                         attempts: number): CompletionMetrics {
+    private buildMetrics(
+        model: string,
+        modelSettings: ModelConfig,
+        usage: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null },
+        finishReason: string,
+        latencyMs: number,
+        attempts: number,
+    ): CompletionMetrics {
         return {
             model,
             provider: modelSettings.provider,
@@ -203,11 +210,13 @@ export class LlmClient {
         };
     }
 
-    async generateCompletion(log: (..._: any[]) => void,
-                             warn: (..._: any[]) => void,
-                             model: string,
-                             systemPrompt: string,
-                             content: UserContent): Promise<CompletionResult> {
+    async generateCompletion(
+        log: LogSink,
+        warn: LogSink,
+        model: string,
+        systemPrompt: string,
+        content: UserContent,
+    ): Promise<CompletionResult> {
         const context = this.resolveModelContext(model);
         const replaced = this.applyPromptReplacements(systemPrompt, content);
         systemPrompt = replaced.systemPrompt;
@@ -292,7 +301,7 @@ export class LlmClient {
                 };
 
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = errorMessage(error);
                 warn(`Chat completion error on attempt ${attemptLabel}: ${message}`);
                 lastError = error;
                 // Loop continues to next attempt (or exits if this was the last)
@@ -311,13 +320,15 @@ export class LlmClient {
      * Retries happen only while nothing has been emitted, because replaying a
      * partially visible answer would duplicate output in the transcript.
      */
-    async chatStream(log: (..._: any[]) => void,
-                     warn: (..._: any[]) => void,
-                     model: string,
-                     systemPrompt: string,
-                     messages: ModelMessage[],
-                     handlers: ChatStreamHandlers = {},
-                     signal?: AbortSignal): Promise<ChatStreamResult> {
+    async chatStream(
+        log: LogSink,
+        warn: LogSink,
+        model: string,
+        systemPrompt: string,
+        messages: ModelMessage[],
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatStreamResult> {
         const context = this.resolveModelContext(model);
         const { modelSettings, providerOptions } = context;
         const maxRetries = modelSettings.max_retries;
@@ -397,7 +408,7 @@ export class LlmClient {
                 const aborted = signal?.aborted === true || error instanceof ChatAbortedError;
                 const message = aborted
                     ? "Stopped."
-                    : error instanceof Error ? error.message : String(error);
+                    : errorMessage(error);
                 warn(`Streamed chat error on attempt ${attemptLabel}: ${message}`);
                 lastError = error;
 
@@ -416,7 +427,7 @@ export class LlmClient {
             }
         }
 
-        const message = lastError instanceof Error ? lastError.message : String(lastError ?? "Unknown error");
+        const message = errorMessage(lastError ?? "Unknown error");
         warn("Exhausted all retries due to errors — returning the failure to the caller");
         return {
             status: "failed",

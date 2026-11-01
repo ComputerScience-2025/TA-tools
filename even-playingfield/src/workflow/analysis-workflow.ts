@@ -2,6 +2,7 @@ import { scanGlob } from "../platform/glob.ts";
 import { joinPath } from "../platform/path.ts";
 import { FilePayloadGenerator } from "../util/file-payload.ts";
 import { resolveOutputFilename } from "../util/output-filename.ts";
+import { errorMessage } from "../util/errors.ts";
 import {
     createSessionId,
     stripReasoning,
@@ -35,10 +36,10 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
     deps.logger.log("info", `Executing analysis workflow: ${workflow.slug}`);
     const log = (message: string, ...data: unknown[]) => {
         deps.logger.log("info", message, { slug: workflow.slug, data });
-    }
+    };
     const warn = (message: string, ...data: unknown[]) => {
         deps.logger.log("warn", message, { slug: workflow.slug, data });
-    }
+    };
 
     // File searches and their matches, resolved through the platform filesystem
     // (relative paths resolve against the workspace root on every platform).
@@ -108,7 +109,7 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
             sessionId,
         };
     } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorMsg = errorMessage(error);
         warn(`Workflow failed: ${errorMsg}`);
         return {
             ...resultBase,
@@ -175,7 +176,7 @@ async function recordSession(
         log(`Chat session saved as ${session.id}`);
         return session.id;
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         warn(`Could not save the chat session: ${message}`);
         return undefined;
     }

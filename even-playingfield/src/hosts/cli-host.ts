@@ -10,6 +10,7 @@ import chalk from "chalk";
 import { EPF } from "./local-api-host.ts";
 import type { EPFOptions } from "./local-api-host.ts";
 import { parseAndExecute, COMMAND_NAMES } from "../command-handler.ts";
+import { errorMessage } from "../util/errors.ts";
 import { OutputViewingModeEnum } from "../util/config-schema.ts";
 import { chatHelpText, formatSessionSummary, parseChatInput } from "../util/chat-repl.ts";
 import { messageText } from "../util/chat-session.ts";
@@ -240,7 +241,7 @@ function chatHandlers(mode: ChatMode) {
     };
 }
 
-async function runChatAction(mode: ChatMode, action: () => Promise<ChatOutcome>): Promise<void> {
+async function runChatAction(action: () => Promise<ChatOutcome>): Promise<void> {
     process.stdout.write("\n");
     try {
         const outcome = await action();
@@ -257,7 +258,7 @@ async function runChatAction(mode: ChatMode, action: () => Promise<ChatOutcome>)
         }
     } catch (error) {
         process.stdout.write("\n");
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         console.error(chalk.red(`[chat] ${message}`));
     }
 }
@@ -280,10 +281,10 @@ async function handleChatLine(line: string, mode: ChatMode): Promise<void> {
             console.log(`Reasoning display ${mode.reasoning ? "on" : "off"}.`);
             return;
         case "regenerate":
-            await runChatAction(mode, () => epf.engine.regenerateSession(mode.sessionId, chatHandlers(mode)));
+            await runChatAction(() => epf.engine.regenerateSession(mode.sessionId, chatHandlers(mode)));
             return;
         case "message":
-            await runChatAction(mode, () => epf.engine.chatSession(mode.sessionId, input.text, chatHandlers(mode)));
+            await runChatAction(() => epf.engine.chatSession(mode.sessionId, input.text, chatHandlers(mode)));
             return;
     }
 }
@@ -330,7 +331,7 @@ function completer(line: string): [string[], string] {
 // These surface as unhandled promise rejections and would crash Bun without
 // this handler.
 process.on("unhandledRejection", (reason: unknown) => {
-    const message = reason instanceof Error ? reason.message : String(reason);
+    const message = errorMessage(reason);
     console.error(chalk.red(`[epf] Unhandled async error (process kept alive): ${message}`));
 });
 

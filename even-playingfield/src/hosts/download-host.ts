@@ -25,6 +25,7 @@ import chalk from "chalk";
 import { getRemote, listRemotes } from "../download/registry.ts";
 import { runDownload as executeDownload } from "../download/runner.ts";
 import { BunFileSystem } from "../platform/bun/bun-fs.ts";
+import { errorMessage } from "../util/errors.ts";
 import type { DownloadOptions, DownloadPlan, EnvVars, RemoteSource } from "../download/types.ts";
 
 const DEFAULT_CONCURRENCY = 5;
@@ -119,7 +120,7 @@ export async function runDownload(argv: string[]): Promise<void> {
     try {
         plan = await remote.plan(url, env);
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         fail(`Failed to resolve download plan: ${message}`);
     }
 

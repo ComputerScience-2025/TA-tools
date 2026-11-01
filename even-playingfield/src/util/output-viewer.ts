@@ -32,21 +32,12 @@ export class OutputViewer {
     }
 
     /**
-     * Remove files matching the given slug substrings.
-     * If no filter is provided (or empty array), clear everything.
-     * Only the in-memory record list is cleared; files on disk/browser storage
-     * are left alone (the web host removes them via the filesystem directly).
+     * Forget every output record. Only the in-memory list is cleared; files on
+     * disk/browser storage are left alone (hosts remove them via the
+     * filesystem, then call {@link clearFileNames} with the names they removed).
      */
-    clearFiles(slugFilter?: string[]): void {
-        if (!slugFilter || slugFilter.length === 0) {
-            this.fileRecords = {};
-            return;
-        }
-        for (const key of Object.keys(this.fileRecords)) {
-            if (slugFilter.some((s) => key.includes(s))) {
-                delete this.fileRecords[key];
-            }
-        }
+    clear(): void {
+        this.fileRecords = {};
     }
 
     /** Delete exactly these filenames from the in-memory record list. */

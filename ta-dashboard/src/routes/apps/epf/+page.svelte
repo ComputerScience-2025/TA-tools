@@ -5,6 +5,9 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
+	import { errorMessage } from "$epf/util/errors.ts";
+	import { formatBytes } from "$epf/util/format.ts";
+
 	import ConfigPanel from "$lib/components/epf/ConfigPanel.svelte";
 	import ConsolePanel from "$lib/components/epf/ConsolePanel.svelte";
 	import OutputsPanel from "$lib/components/epf/OutputsPanel.svelte";
@@ -30,26 +33,12 @@
 		$usage !== null && $usage.cap > 0 ? Math.min(100, Math.round(($usage.used / $usage.cap) * 100)) : 0
 	);
 
-	const formatBytes = (bytes: number): string => {
-		if (bytes < 1024) {
-			return `${bytes} B`;
-		}
-		const units = ["KB", "MB", "GB"];
-		let value = bytes / 1024;
-		let index = 0;
-		while (value >= 1024 && index < units.length - 1) {
-			value /= 1024;
-			index += 1;
-		}
-		return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[index]}`;
-	};
-
 	onMount(() => {
 		void (async () => {
 			try {
 				await epfSession.ensure();
 			} catch (err) {
-				sessionError = err instanceof Error ? err.message : String(err);
+				sessionError = errorMessage(err);
 			}
 		})();
 	});

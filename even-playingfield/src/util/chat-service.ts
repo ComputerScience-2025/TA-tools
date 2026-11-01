@@ -10,13 +10,14 @@ import { assistantMessage, stripReasoning, userMessage } from "./chat-session.ts
 import type { ChatSession, SessionMessageMeta } from "./chat-session.ts";
 import type { ChatStreamHandlers, ChatStreamResult } from "./llm.ts";
 import type { SessionStore } from "./session-store.ts";
+import type { LogSink } from "../platform/types.ts";
 import type { ModelMessage } from "ai";
 
 /** The slice of `LlmClient` a chat needs. Structural, so tests can fake it. */
 export type ChatClient = {
     chatStream(
-        log: (..._: any[]) => void,
-        warn: (..._: any[]) => void,
+        log: LogSink,
+        warn: LogSink,
         model: string,
         systemPrompt: string,
         messages: ModelMessage[],

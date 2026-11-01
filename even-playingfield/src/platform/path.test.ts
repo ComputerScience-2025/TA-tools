@@ -5,6 +5,7 @@ import {
     dirnamePath,
     extnamePath,
     isAbsolutePath,
+    isWithinPath,
     joinPath,
     normalizePath,
     relativePath,
@@ -65,5 +66,19 @@ describe("platform/path", () => {
         expect(relativePath("/epf/a/b", "/epf/a")).toBe("..");
         expect(relativePath("/epf/a", "/epf/a")).toBe(".");
         expect(relativePath("/x", "/y/z")).toBe("../y/z");
+    });
+
+    test("isWithinPath accepts the root itself and its children only", () => {
+        expect(isWithinPath("/epf/home", "/epf/home")).toBe(true);
+        expect(isWithinPath("/epf/home/epf.toml", "/epf/home")).toBe(true);
+        expect(isWithinPath("/epf/home/nested/a.toml", "/epf/home/")).toBe(true);
+        // A sibling that merely shares the prefix is outside.
+        expect(isWithinPath("/epf/home2/a.toml", "/epf/home")).toBe(false);
+        expect(isWithinPath("/epf/other/a.toml", "/epf/home")).toBe(false);
+        // `..` is normalized before the comparison, so it cannot escape.
+        expect(isWithinPath("/epf/home/../other/a.toml", "/epf/home")).toBe(false);
+        // A filesystem root contains everything below it.
+        expect(isWithinPath("/epf/home", "/")).toBe(true);
+        expect(isWithinPath("C:/epf/home", "C:/")).toBe(true);
     });
 });

@@ -45,13 +45,13 @@ export async function executeTestingWorkflow(workflow: TestingWorkflow, runNum: 
     deps.logger.log("info", `Executing testing workflow: ${workflow.slug}`);
     const log = (message: string, ...data: unknown[]) => {
         deps.logger.log("info", message, { slug: workflow.slug, data });
-    }
+    };
     const warn = (message: string, ...data: unknown[]) => {
         deps.logger.log("warn", message, { slug: workflow.slug, data });
-    }
+    };
     const debug = (message: string, ...data: unknown[]) => {
         deps.logger.log("debug", message, { slug: workflow.slug, data });
-    }
+    };
 
     if (!deps.shell.available) {
         warn(SHELL_REQUIRED_MESSAGE);

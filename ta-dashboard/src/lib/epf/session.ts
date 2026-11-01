@@ -15,7 +15,7 @@ import { fileTypeFor } from "$lib/results/file-sources";
 
 import { COMMAND_NAMES } from "$epf/command-handler.ts";
 import { ENV_VARS } from "$epf/util/env-vars.ts";
-import { toConfigSource } from "$epf/util/config-loader.ts";
+import { errorMessage } from "$epf/util/errors.ts";
 
 import type {
 	WebEPF,
@@ -74,7 +74,6 @@ class EpfSession {
 	readonly configLoaded = writable(false);
 	readonly configSource = writable<ConfigSource | null>(null);
 	readonly attemptedConfigSource = writable<ConfigSource | null>(null);
-	readonly configSourceLabel = writable<string | null>(null);
 	readonly configText = writable("");
 	readonly configIssues = writable<string[]>([]);
 	readonly homeConfigs = writable<HomeConfigFile[]>([]);
@@ -82,7 +81,6 @@ class EpfSession {
 	readonly files = writable<WorkspaceFile[]>([]);
 	readonly usage = writable<StorageUsage | null>(null);
 	readonly lastResults = writable<WorkflowRunResult[]>([]);
-	readonly lastFetch = writable<FetchSourceSummary | null>(null);
 	readonly envValues = writable<EnvVarValue[]>([]);
 	readonly initialized = writable(false);
 	/** Bumped by clearLog() so the console can rebuild its terminal. */
@@ -179,7 +177,7 @@ class EpfSession {
 			this.error.set(null);
 			return epf;
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			this.error.set(message);
 			throw err;
 		} finally {
@@ -292,7 +290,6 @@ class EpfSession {
 		const source = epf.getConfigSource();
 		this.configSource.set(source);
 		this.attemptedConfigSource.set(epf.getAttemptedConfigSource());
-		this.configSourceLabel.set(source === null ? null : describeSource(source));
 		if (text !== null) {
 			this.configText.set(text);
 		} else if (!epf.hasConfig()) {
@@ -338,38 +335,6 @@ class EpfSession {
 		await this.refreshConfig();
 	}
 
-	async saveConfigText(text: string, path = "epf.toml"): Promise<void> {
-		const epf = await this.ensure();
-		await this.withBusy(async () => {
-			await epf.saveConfigText(text, path);
-		});
-		await this.refreshAll();
-	}
-
-	async loadConfigFromInput(value: string): Promise<void> {
-		const epf = await this.ensure();
-		const source = toConfigSource(value.trim());
-		await this.withBusy(async () => {
-			await epf.loadConfigSource(source);
-		});
-		await this.refreshAll();
-	}
-
-	async loadConfigFromWorkspace(name: string): Promise<void> {
-		const epf = await this.ensure();
-		const workspace = epf.requireActiveWorkspace();
-		await this.withBusy(async () => {
-			await epf.loadConfigSource({ kind: "path", path: `${workspace.path}/${name}` });
-		});
-		await this.refreshAll();
-	}
-
-	/** Config files found in the active workspace. */
-	async detectWorkspaceConfigs(): Promise<string[]> {
-		const epf = await this.ensure();
-		return await epf.detectConfigCandidates();
-	}
-
 	/** Every TOML file in the active workspace, for the editor's picker. */
 	async listWorkspaceConfigFiles(): Promise<string[]> {
 		const epf = await this.ensure();
@@ -380,12 +345,6 @@ class EpfSession {
 	async openConfigDocument(source: ConfigSource): Promise<OpenedConfigDocument> {
 		const epf = await this.ensure();
 		return await epf.openConfigDocument(source);
-	}
-
-	/** The source a fresh page would pick (workspace or library). */
-	async findConfigSource(): Promise<ConfigSource | null> {
-		const epf = await this.ensure();
-		return await epf.findConfigSource();
 	}
 
 	getHomeDir(): string {
@@ -400,13 +359,6 @@ class EpfSession {
 	async saveConfigToPath(path: string, text: string): Promise<ConfigSource> {
 		const epf = await this.ensure();
 		const source = await this.withBusy(async () => await epf.saveConfigToPath(path, text));
-		await this.refreshAll();
-		return source;
-	}
-
-	async saveConfigToCurrentSource(text: string): Promise<ConfigSource> {
-		const epf = await this.ensure();
-		const source = await this.withBusy(async () => await epf.saveConfigToCurrentSource(text));
 		await this.refreshAll();
 		return source;
 	}
@@ -598,7 +550,6 @@ class EpfSession {
 			await this.refreshAll();
 			throw error;
 		}
-		this.lastFetch.set(summary);
 		await this.refreshAll();
 		return summary;
 	}
@@ -733,15 +684,6 @@ class EpfSession {
 		await this.refreshAll();
 	}
 
-	async clearActiveWorkspace(): Promise<void> {
-		const epf = await this.ensure();
-		await this.withBusy(async () => {
-			await epf.clearWorkspace();
-		});
-		this.outputCache.clear();
-		await this.refreshAll();
-	}
-
 	// --- Chat sessions ---
 
 	/** Reload the session list for the active workspace. */
@@ -750,7 +692,7 @@ class EpfSession {
 		try {
 			this.chatSessions.set(await epf.listSessions());
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			this.chatSessions.set([]);
 			console.error("Could not list chat sessions", message);
 		}
@@ -873,7 +815,7 @@ class EpfSession {
 				this.chatError.set(outcome.error ?? "The reply failed.");
 			}
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			this.chatError.set(message);
 		} finally {
 			this.chatStreaming.set({ active: false, text: "", reasoning: "" });
@@ -918,7 +860,7 @@ class EpfSession {
 			this.error.set(null);
 			return value;
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
+			const message = errorMessage(err);
 			this.error.set(message);
 			throw err;
 		} finally {
@@ -943,17 +885,6 @@ function longestCommonPrefix(values: readonly string[]): string {
 		}
 	}
 	return prefix;
-}
-
-function describeSource(source: ConfigSource): string {
-	switch (source.kind) {
-		case "path":
-			return source.path;
-		case "url":
-			return source.url;
-		case "inline":
-			return source.label;
-	}
 }
 
 export const epfSession = new EpfSession();

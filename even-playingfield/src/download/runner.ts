@@ -9,6 +9,7 @@
  */
 
 import { joinPath } from "../platform/path.ts";
+import { errorMessage } from "../util/errors.ts";
 import type {
     DownloadOptions,
     DownloadPlan,
@@ -78,7 +79,7 @@ async function writeFile(
         await options.fs.writeBytes(targetPath, bytes);
         return { relativePath: file.relativePath, status: "downloaded" };
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         return { relativePath: file.relativePath, status: "failed", error: message };
     }
 }

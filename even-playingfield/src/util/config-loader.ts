@@ -16,6 +16,7 @@ import type { ZodError } from "zod";
 import { detectConfigVersion } from "./config-migrations.ts";
 import { ConfigSchema, CURRENT_CONFIG_VERSION } from "./config-schema.ts";
 import { CONFIG_URL_ENV_VAR } from "./env-vars.ts";
+import { errorMessage } from "./errors.ts";
 import { joinPath } from "../platform/path.ts";
 import type { Config } from "./config-schema.ts";
 import type { Platform } from "../platform/types.ts";
@@ -144,7 +145,7 @@ export function validateConfigText(platform: Platform, text: string, label = "co
     try {
         obj = platform.toml.parse(text);
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         return {
             ok: false,
             message: `TOML parse error in ${label}: ${message}`,

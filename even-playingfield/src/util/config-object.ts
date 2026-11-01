@@ -12,6 +12,7 @@ import { detectConfigVersion, migrateToCurrent, migrationSteps } from "./config-
 import { validateConfigObject } from "./config-loader.ts";
 import { createDefaultConfigDocument } from "./config-defaults.ts";
 import { stringifyToml } from "./toml-stringify.ts";
+import { errorMessage } from "./errors.ts";
 import type { ConfigValidation } from "./config-loader.ts";
 import type { MigrationStep } from "./config-migrations.ts";
 import type { TomlCodec } from "../platform/types.ts";
@@ -62,7 +63,7 @@ export function parseConfigDocument(text: string, toml: TomlCodec): ConfigDocume
         const raw = toml.parse(text) as RawConfigObject;
         return { ok: true, document: { raw, version: detectConfigVersion(raw) } };
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         return { ok: false, message };
     }
 }
@@ -94,7 +95,7 @@ export function createDefaultDocument(): RawConfigObject {
 
 // --- Canonical field order -------------------------------------------------
 
-const TOP_LEVEL_ORDER = ["version", "output_viewing", "llm", "analysis_workflows", "testing_workflows"];
+const TOP_LEVEL_ORDER = ["version", "output_viewing", "sessions", "llm", "analysis_workflows", "testing_workflows"];
 const LLM_ORDER = ["providers", "models", "prompt_replacement"];
 const OUTPUT_VIEWING_ORDER = ["mode", "api_port", "webui_base_url"];
 const PROVIDER_ORDER = ["sdk", "endpoint", "api_key", "headers"];

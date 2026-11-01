@@ -10,7 +10,7 @@
  */
 
 import { Engine } from "../engine/index.ts";
-import { executeLs, parseAndExecute } from "../command-handler.ts";
+import { executeLs, helpText, parseAndExecute } from "../command-handler.ts";
 import {
     DEFAULT_CONFIG_FILE_NAME,
     configSourceLabel,
@@ -28,14 +28,16 @@ import {
 import {
     coerceEditorDraftFile,
     createEmptyEditorDraftFile,
+    editorDraftKey,
     pruneEditorDrafts,
 } from "../util/editor-draft.ts";
 import { planGithubDownload, githubRemote, parseGithubUrl } from "../download/github.ts";
 import { runDownload } from "../download/runner.ts";
 import { SessionStore } from "../util/session-store.ts";
 import { createWebPlatform, storageEstimate } from "../platform/web/web-platform.ts";
-import { basenamePath, dirnamePath, joinPath, resolvePath } from "../platform/path.ts";
+import { basenamePath, dirnamePath, isWithinPath, joinPath, resolvePath } from "../platform/path.ts";
 import { CONFIG_URL_ENV_VAR, GITHUB_PAT_ENV_VAR } from "../util/env-vars.ts";
+import { errorMessage } from "../util/errors.ts";
 import type { CommandResult } from "../command-handler.ts";
 import type { Config, ConfigSource, ConfigValidation } from "../util/config-loader.ts";
 import type { DownloadPlan, DownloadSummary, EnvVars } from "../download/types.ts";
@@ -57,18 +59,7 @@ export const CONFIG_CANDIDATE_NAMES: readonly string[] = [
     "eval/epf.toml",
 ];
 
-const BROWSER_HELP_TEXT = `Available commands:
-  run [slug...]    Run workflows (all if no slug given)
-  rerun [slug...]  Clear outputs then re-run workflows (all if no slug given)
-  clear [slug...]  Delete output files (all if no slug given)
-  status           Show in-flight workflows and output file count
-  list             Show all configured workflow slugs
-  ls [dir] [--depth N]
-                   List workspace files (defaults to the whole tree)
-  chat [--all]     List recorded chat sessions (continue them in the Outputs tab)
-  reload           Reload config from the same source as before
-  help             Show this help message
-  exit / quit      Do nothing (close the browser tab to leave)`;
+const BROWSER_HELP_SUFFIX = `\n\nNo config is loaded yet: 'ls' still lists the workspace; run, list, status, clear and reload need a config from the Config panel.`;
 
 export type WebEPFOptions = WebPlatformOptions & {
     /** Skip the automatic config lookup at startup. */
@@ -225,7 +216,7 @@ export class WebEPF {
             try {
                 await this.loadConfigSource(normalized);
             } catch (error) {
-                this.configError = error instanceof Error ? error.message : String(error);
+                this.configError = errorMessage(error);
                 this.web.logs.log("warn", `Could not load the config automatically: ${this.configError}`);
             }
         }
@@ -277,7 +268,7 @@ export class WebEPF {
             try {
                 listener(engine);
             } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = errorMessage(error);
                 this.web.logs.log("error", `Engine listener failed: ${message}`);
             }
         }
@@ -509,10 +500,10 @@ export class WebEPF {
      */
     private assertConfigPathWritable(path: string): void {
         const workspace = this.getActiveWorkspace();
-        if (isPathWithin(path, this.web.homeDir)) {
+        if (isWithinPath(path, this.web.homeDir)) {
             return;
         }
-        if (workspace !== null && isPathWithin(path, workspace.path)) {
+        if (workspace !== null && isWithinPath(path, workspace.path)) {
             return;
         }
         throw new Error(`Refusing to write a config outside the library or the active workspace: ${path}`);
@@ -560,11 +551,6 @@ export class WebEPF {
             await this.loadConfigSource(source);
         }
         return source;
-    }
-
-    /** Legacy entry point used by older host consumers. */
-    async saveConfigText(text: string, relativePath: string = DEFAULT_CONFIG_FILE_NAME): Promise<ConfigSource> {
-        return await this.saveConfigToWorkspace(text, relativePath, { overwrite: true });
     }
 
     // --- Durable config library ------------------------------------------------
@@ -640,7 +626,7 @@ export class WebEPF {
             throw new Error(`"${fileName}" does not exist in the config library.`);
         }
         await this.web.storageFs.remove(path);
-        await this.deleteEditorDraftKey(`path:${path}`);
+        await this.deleteEditorDraftKey(editorDraftKey({ kind: "path", path }));
         if (this.getDefaultHomeConfig() === fileName) {
             this.web.state.setDefaultHomeConfig(null);
         }
@@ -720,7 +706,7 @@ export class WebEPF {
         await this.web.storageFs.remove(path);
 
         const previousName = basenamePath(path);
-        if (isPathWithin(path, this.web.homeDir) && this.getDefaultHomeConfig() === previousName) {
+        if (isWithinPath(path, this.web.homeDir) && this.getDefaultHomeConfig() === previousName) {
             this.web.state.setDefaultHomeConfig(fileName);
         }
 
@@ -740,7 +726,7 @@ export class WebEPF {
         if (stored?.kind === "path" && stored.path === path) {
             this.web.state.setStoredConfigSource({ kind: "path", path: target });
         }
-        await this.moveEditorDraftKey(`path:${path}`, `path:${target}`);
+        await this.moveEditorDraftKey(editorDraftKey({ kind: "path", path }), editorDraftKey({ kind: "path", path: target }));
         if (wasCurrent) {
             await this.loadConfigSource(next);
         }
@@ -840,11 +826,11 @@ export class WebEPF {
             }
         }
 
-        return await this.findHomeConfigSource();
+        return await this.findLibraryConfigSource();
     }
 
     /** The durable library's default config, if one can be chosen unambiguously. */
-    private async findHomeConfigSource(): Promise<ConfigSource | null> {
+    private async findLibraryConfigSource(): Promise<ConfigSource | null> {
         const home = await this.listHomeConfigs();
         if (home.length === 0) {
             return null;
@@ -882,6 +868,7 @@ export class WebEPF {
         await this.web.storageFs.writeText(this.draftsPath, JSON.stringify(file, null, 2));
     }
 
+    /** Delete the drafts of a source that no longer exists. */
     private async deleteEditorDraftKey(sourceKey: string): Promise<void> {
         try {
             const file = await this.readDraftFile();
@@ -988,14 +975,14 @@ export class WebEPF {
         }
         const wasActive = this.web.state.get().activeWorkspace === workspace.path;
         const configInWorkspace = this.configSource?.kind === "path"
-            && (this.configSource.path === workspace.path || this.configSource.path.startsWith(`${workspace.path}/`));
+            && isWithinPath(this.configSource.path, workspace.path);
         const attemptedInWorkspace = this.attemptedSource?.kind === "path"
-            && (this.attemptedSource.path === workspace.path || this.attemptedSource.path.startsWith(`${workspace.path}/`));
+            && isWithinPath(this.attemptedSource.path, workspace.path);
 
         await this.web.storageFs.remove(workspace.path, { recursive: true });
         this.web.state.removeWorkspace(workspace.path);
         const stored = this.web.state.getStoredConfigSource();
-        if (stored !== null && stored.kind === "path" && stored.path.startsWith(`${workspace.path}/`)) {
+        if (stored !== null && stored.kind === "path" && isWithinPath(stored.path, workspace.path)) {
             this.web.state.setStoredConfigSource(null);
         }
         if (attemptedInWorkspace) {
@@ -1112,7 +1099,7 @@ export class WebEPF {
                 await this.loadConfigSource({ kind: "path", path: joinPath(workspace.path, first) });
                 configLoaded = first;
             } catch (error) {
-                configError = error instanceof Error ? error.message : String(error);
+                configError = errorMessage(error);
                 this.web.logs.log("warn", `Could not load the fetched config '${first}': ${configError}`);
                 if (!this.hasConfig()) {
                     this.configError = configError;
@@ -1123,13 +1110,13 @@ export class WebEPF {
         // A repository without a config, or an upload into a fresh workspace,
         // still needs something to run. Fall back to the durable library.
         if (!this.hasConfig()) {
-            const homeSource = await this.findHomeConfigSource();
+            const homeSource = await this.findLibraryConfigSource();
             if (homeSource !== null) {
                 try {
                     await this.loadConfigSource(homeSource);
                     configLoaded = homeSource.kind === "path" ? basenamePath(homeSource.path) : null;
                 } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
+                    const message = errorMessage(error);
                     this.web.logs.log("warn", `Could not load the library config: ${message}`);
                 }
             }
@@ -1180,7 +1167,7 @@ export class WebEPF {
     /** Resolve a workspace-relative path, refusing anything outside the workspace. */
     private resolveInWorkspace(workspacePath: string, relative: string): string {
         const target = resolvePath(workspacePath, relative);
-        if (target !== workspacePath && !target.startsWith(`${workspacePath}/`)) {
+        if (!isWithinPath(target, workspacePath)) {
             throw new Error(`Path '${relative}' is outside the workspace.`);
         }
         return target;
@@ -1219,9 +1206,10 @@ export class WebEPF {
     }
 
     /**
-     * Run a console command through the same dispatcher the CLI REPL uses.
-     * `clear` and `rerun` additionally remove the corresponding output files
-     * from the workspace, since the browser has no separate shell for that.
+     * Run a console command through the same dispatcher the CLI REPL uses, with
+     * the browser's workspace-aware context: `ls` reports the workspace and
+     * config, `clear`/`rerun` delete the files, and `exit` explains why it does
+     * nothing here.
      */
     async executeCommand(line: string): Promise<CommandResult> {
         const trimmed = line.trim();
@@ -1231,25 +1219,17 @@ export class WebEPF {
 
         const [command, ...args] = trimmed.split(/\s+/);
         const normalized = command!.toLowerCase();
-
-        if (normalized === "exit" || normalized === "quit") {
-            return { kind: "output", message: "The browser console cannot close the page; close the tab instead." };
-        }
-
-        // Handled before the config check: inspecting the workspace is how a
-        // wrong search_directory, a flattened subdirectory fetch, or a config
-        // that failed to load actually gets diagnosed.
-        if (normalized === "ls") {
-            this.web.state.appendConsoleHistory(trimmed);
-            return await executeLs(this.web.platform.fs, args, { header: this.describeListingContext() });
-        }
+        this.web.state.appendConsoleHistory(trimmed);
 
         if (this.engine === null) {
+            // `ls` is handled before the config check: inspecting the workspace
+            // is how a wrong search_directory, a flattened subdirectory fetch,
+            // or a config that failed to load actually gets diagnosed.
+            if (normalized === "ls") {
+                return await executeLs(this.web.platform.fs, args, { header: this.describeListingContext() });
+            }
             if (normalized === "help") {
-                return {
-                    kind: "output",
-                    message: `${BROWSER_HELP_TEXT}\n\nNo config is loaded yet: 'ls' still lists the workspace; run, list, status, clear and reload need a config from the Config panel.`,
-                };
+                return { kind: "output", message: `${helpText("web")}${BROWSER_HELP_SUFFIX}` };
             }
             return {
                 kind: "error",
@@ -1257,64 +1237,19 @@ export class WebEPF {
             };
         }
 
-        this.web.state.appendConsoleHistory(trimmed);
-
-        const engine = this.engine;
-
-        if (normalized === "help") {
-            return { kind: "output", message: BROWSER_HELP_TEXT };
+        try {
+            return await parseAndExecute(this.engine, trimmed, {
+                host: "web",
+                lsHeader: this.describeListingContext(),
+                knownOutputs: () => this.existingRecordedOutputs(),
+                clearOutputs: (names) => this.clearOutputFiles(names),
+                exitMessage: "The browser console cannot close the page; close the tab instead.",
+            });
+        } catch (error) {
+            const message = errorMessage(error);
+            this.web.logs.log("warn", message);
+            return { kind: "error", message };
         }
-
-        if (normalized === "status") {
-            const status = engine.getStatus();
-            const workspace = this.getActiveWorkspace();
-            const recorded = workspace === null ? [] : this.getRecordedOutputs(workspace.path);
-            const existing: string[] = [];
-            for (const name of recorded) {
-                if (workspace === null) {
-                    break;
-                }
-                const info = await this.web.storageFs.stat(joinPath(workspace.path, name));
-                if (info !== null && info.kind === "file") {
-                    existing.push(name);
-                }
-            }
-            const files = [...new Set([...status.completedFiles, ...existing])];
-            const lines = [
-                `In-flight workflows: ${status.inFlight.length > 0 ? status.inFlight.join(", ") : "(none)"}`,
-                `Output files: ${files.length}`,
-            ];
-            for (const file of files) {
-                lines.push(`  • ${file}`);
-            }
-            return { kind: "output", message: lines.join("\n") };
-        }
-
-        if (normalized === "clear") {
-            try {
-                const removed = await this.clearRecordedOutputs(args.length > 0 ? args : undefined);
-                this.web.logs.log("info", `Removed ${removed.length} output file(s) from the workspace.`);
-                const target = args.length > 0 ? args.join(", ") : "all";
-                return { kind: "output", message: `Cleared results: ${target} (${removed.length} file(s) removed).` };
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.web.logs.log("warn", `Could not remove output files: ${message}`);
-                return { kind: "error", message: `Could not clear outputs: ${message}` };
-            }
-        }
-
-        if (normalized === "rerun") {
-            try {
-                const removed = await this.clearRecordedOutputs(args.length > 0 ? args : undefined);
-                this.web.logs.log("info", `Removed ${removed.length} output file(s) from the workspace.`);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.web.logs.log("warn", `Could not remove output files: ${message}`);
-            }
-            return await parseAndExecute(engine, ["run", ...args].join(" ").trim());
-        }
-
-        return await parseAndExecute(engine, trimmed);
     }
 
     // --- Outputs ---
@@ -1323,6 +1258,22 @@ export class WebEPF {
     getRecordedOutputs(workspacePath?: string): string[] {
         const path = workspacePath ?? this.getActiveWorkspace()?.path;
         return path === undefined ? [] : this.web.state.getWorkspaceOutputs(path);
+    }
+
+    /** Recorded output files that still exist in the active workspace. */
+    private async existingRecordedOutputs(): Promise<string[]> {
+        const workspace = this.getActiveWorkspace();
+        if (workspace === null) {
+            return [];
+        }
+        const existing: string[] = [];
+        for (const name of this.getRecordedOutputs(workspace.path)) {
+            const info = await this.web.storageFs.stat(joinPath(workspace.path, name));
+            if (info !== null && info.kind === "file") {
+                existing.push(name);
+            }
+        }
+        return existing;
     }
 
     /**
@@ -1472,12 +1423,7 @@ export class WebEPF {
     }
 }
 
-/** True when `path` is `root` or a child of it (POSIX path comparison). */
-function isPathWithin(path: string, root: string): boolean {
-    const normalizedRoot = root.endsWith("/") ? root.slice(0, -1) : root;
-    return path === normalizedRoot || path.startsWith(`${normalizedRoot}/`);
-}
-
+/** Filesystem-safe, collision-resistant directory name for a workspace label. */
 function workspaceSlug(label: string): string {
     const base = label
         .toLowerCase()
