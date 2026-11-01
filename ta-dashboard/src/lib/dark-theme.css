@@ -27,9 +27,19 @@ html[data-theme="dark"] .menu-list .button.is-text.is-active {
     color: var(--bulma-link-invert) !important;
 }
 
-/* .button.is-light doesn't adapt in dark mode */
-html[data-theme="dark"] .button.is-light {
-    background-color: var(--bulma-light);
-    color: var(--bulma-light-invert) !important;
+/* .button.is-light doesn't adapt in dark mode: Bulma keeps the near-white
+   background. Give plain light buttons the raised surface colour instead, while
+   leaving the coloured soft variants (is-danger is-light, …) to Bulma. */
+html[data-theme="dark"] .button.is-light:where(
+    :not(.is-primary, .is-link, .is-info, .is-success, .is-warning, .is-danger, .is-white, .is-black, .is-text, .is-ghost)
+) {
+    background-color: var(--bulma-background);
+    color: var(--bulma-text);
     border-color: var(--bulma-border);
+}
+
+/* .has-text-grey is a fixed hsl(221, 14%, 48%), which is only ~4:1 on the dark
+   scheme. Use the theme's weak text colour instead. */
+html[data-theme="dark"] .has-text-grey {
+    color: var(--bulma-text-weak) !important;
 }

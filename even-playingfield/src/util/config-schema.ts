@@ -67,6 +67,15 @@ export const LLMConfigSchema = z.object({
 
 export type LLMConfig = z.infer<typeof LLMConfigSchema>;
 
+export const SessionsConfigSchema = z.object({
+    /** Record a chat session (JSON in the home directory) for every analysis run. */
+    enabled: z.boolean().default(true),
+    /** Keep assistant reasoning parts so a continued chat can replay them. */
+    retain_reasoning: z.boolean().default(true),
+});
+
+export type SessionsConfig = z.infer<typeof SessionsConfigSchema>;
+
 export const FileSearchEntrySchema = z.object({
     file_glob: z.string().min(1),
     search_directory: z.string().default("."),
@@ -143,6 +152,7 @@ export const ConfigSchema = z.object({
     version: z.number().int().default(CURRENT_CONFIG_VERSION),
     output_viewing: OutputViewingConfigSchema,
     llm: LLMConfigSchema,
+    sessions: SessionsConfigSchema.default({ enabled: true, retain_reasoning: true }),
     analysis_workflows: z.array(AnalysisWorkflowEntrySchema).default([]),
     testing_workflows: z.array(TestingWorkflowEntrySchema).default([]),
 }).superRefine((data, ctx) => {

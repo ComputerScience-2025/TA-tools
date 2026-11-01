@@ -1,5 +1,6 @@
 import { formatFileListing, listTree, LIST_MAX_DEPTH } from "./util/file-listing.ts";
 import { configSourceLabel } from "./util/config-loader.ts";
+import { formatSessionSummary } from "./util/chat-repl.ts";
 import { normalizePath } from "./platform/path.ts";
 import type { Engine } from "./engine/index.ts";
 import type { ConfigSource } from "./util/config-loader.ts";
@@ -18,6 +19,7 @@ export const COMMAND_NAMES: readonly string[] = [
     "status",
     "list",
     "ls",
+    "chat",
     "reload",
     "help",
     "exit",
@@ -32,6 +34,8 @@ const HELP_TEXT = `Available commands:
   list             Show all configured workflow slugs
   ls [dir] [--depth N]
                    List workspace files (defaults to the whole tree)
+  chat [--all]     List recorded chat sessions for this workspace
+                   (CLI: 'chat <id>' continues one)
   reload           Reload config from the same source as startup
   help             Show this help message
   exit / quit      Shut down the program`;
@@ -64,6 +68,8 @@ export async function parseAndExecute(engine: Engine, rawInput: string): Promise
             return handleList(engine);
         case "ls":
             return await handleLs(engine, args);
+        case "chat":
+            return await handleChat(engine, args);
         case "reload":
             return await handleReload(engine);
         case "help":
@@ -89,7 +95,8 @@ async function handleRun(engine: Engine, slugs: string[]): Promise<CommandResult
     for (const r of results) {
         switch (r.status) {
             case "succeeded":
-                lines.push(`  ✓ ${r.slug} (run ${r.runNumber}) — succeeded`);
+                lines.push(`  ✓ ${r.slug} (run ${r.runNumber}) — succeeded` +
+                    (r.sessionId !== undefined ? ` · chat: ${r.sessionId}` : ""));
                 break;
             case "failed":
                 lines.push(`  ✗ ${r.slug} (run ${r.runNumber}) — failed: ${r.error ?? "unknown error"}`);
@@ -272,6 +279,30 @@ async function handleLs(engine: Engine, args: string[]): Promise<CommandResult> 
             `Config: ${source === undefined ? "(none loaded)" : configSourceLabel(source)}`,
         ],
     });
+}
+
+/**
+ * `chat` lists recorded sessions. Continuing one is interactive, so it lives in
+ * the CLI REPL (`chat <id>`); the browser uses the Outputs tab instead.
+ */
+async function handleChat(engine: Engine, args: string[]): Promise<CommandResult> {
+    const showAll = args.includes("--all");
+    const sessions = (await engine.listSessions()).filter((session) => showAll || session.workspace === engine.getFileSystem().root);
+
+    if (sessions.length === 0) {
+        const scope = showAll ? "" : " for this workspace";
+        return {
+            kind: "output",
+            message: `No chat sessions${scope}.${engine.isSessionRecordingEnabled() ? "" : " Session recording is disabled ([sessions] enabled = false)."}`,
+        };
+    }
+
+    const lines: string[] = [`Chat sessions (${sessions.length}), newest first:`];
+    for (const session of sessions) {
+        lines.push(formatSessionSummary(session));
+    }
+    lines.push("", "Use 'chat <id-or-prefix>' in the CLI REPL, or the Outputs tab in the browser.");
+    return { kind: "output", message: lines.join("\n") };
 }
 
 async function handleReload(engine: Engine): Promise<CommandResult> {

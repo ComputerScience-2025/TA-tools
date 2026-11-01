@@ -22,7 +22,7 @@ describe("config form descriptors", () => {
     test("covers every top-level config section", () => {
         const descriptor = root();
         const keys = descriptor.properties?.map((property) => property.key);
-        expect(keys).toEqual(["version", "output_viewing", "llm", "analysis_workflows", "testing_workflows"]);
+        expect(keys).toEqual(["version", "output_viewing", "llm", "sessions", "analysis_workflows", "testing_workflows"]);
         expect(findDescriptor(descriptor, ["version"])?.hidden).toBe(true);
     });
 

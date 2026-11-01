@@ -5,6 +5,10 @@ mode = "webui"
 api_port = 0
 webui_base_url = "https://ta-tools-dashboard.vercel.app"
 
+[sessions]
+enabled = true
+retain_reasoning = true
+
 [llm.providers.openrouter]
 sdk = "openai"
 endpoint = "https://openrouter.ai/api/v1"

@@ -297,14 +297,10 @@
 	.label-text {
 		font-size: 0.9rem;
 		font-weight: 500;
-		color: #4a4a4a;
+		color: var(--bulma-text);
 		display: inline-flex;
 		align-items: center;
 		cursor: pointer;
 		user-select: none;
-	}
-
-	:global(html[data-theme="dark"]) .label-text {
-		color: #f5f5f5;
 	}
 </style>

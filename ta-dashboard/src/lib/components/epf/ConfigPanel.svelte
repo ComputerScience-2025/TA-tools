@@ -940,7 +940,10 @@
 		line-height: 1.4;
 		max-height: 36rem;
 		overflow: auto;
-		background: #fafafa;
+		background: var(--bulma-scheme-main-bis);
+		color: var(--bulma-text);
+		border: 1px solid var(--bulma-border-weak);
+		border-radius: var(--bulma-radius);
 		padding: 1rem;
 	}
 </style>

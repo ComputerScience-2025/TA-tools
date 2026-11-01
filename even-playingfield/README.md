@@ -36,6 +36,39 @@ Credentials are read from environment variables, not `epf.toml`:
 
 - `EPF_DOWNLOAD_GITHUB_PAT` — GitHub personal access token. Optional; required for private repositories.
 
+## Chat sessions
+
+Every successful analysis run is recorded as a JSON chat session, so the conversation can be continued later instead of
+treating the markdown output as final.
+
+- CLI: `~/.even-pf/sessions/<id>.json`
+- Browser: `/epf/home/sessions/<id>.json` (outside the workspace tree, so quota cleanup never removes it)
+
+A session stores the resolved system prompt, the exact messages sent to the model, and the assistant reply **including its
+reasoning parts and provider metadata**. That is what lets a follow-up turn send the assistant's thinking back to the model
+unchanged (Anthropic signatures, OpenAI reasoning ids, and so on). The model is fixed to the one the workflow used; changing
+`[llm.models.*]` settings affects later turns, but a missing model is reported instead of silently switching.
+
+```toml
+[sessions]
+enabled = true            # record a session for every analysis run
+retain_reasoning = true   # keep reasoning parts for replay (set false for providers that reject them)
+```
+
+CLI:
+
+```bash
+even-pf chat              # open the most recent session, then return to the normal REPL on exit
+even-pf chat <SESSION>    # open a specific session (id or unique prefix)
+```
+
+In the REPL, `chat` lists this workspace's sessions (`chat --all` for every workspace) and `chat <id-or-prefix>` enters
+chat mode. Inside chat, plain text is sent to the model, `:regen` regenerates the last reply, `:reasoning` toggles thinking
+output, `:help` lists commands, and `exit`/`:q` returns to the `epf>` prompt. Streaming runs are printed as they arrive.
+
+In the browser, the `/apps/epf` **Outputs → Chats** tab lists the workspace's sessions, streams replies, and lets you edit a
+user message (which deletes every later turn and regenerates), regenerate the last reply, stop a stream, or delete a session.
+
 ## Running in the browser
 
 The same core runs in a web page through `src/hosts/web-host.ts` (`WebEPF`), which the `ta-dashboard` app consumes at `/apps/epf`.
@@ -61,6 +94,7 @@ What differs from the CLI:
 | Environment | A browser has none: values are set in the web UI (see `src/util/env-vars.ts`). Secrets stay in memory unless "remember" is enabled |
 | Testing workflows | Unavailable — they need a shell. They fail fast with a clear message; run them with the CLI |
 | Outputs | Each finished run's filenames are recorded per workspace, so `clear`/`rerun` (and the dashboard's "Clear outputs") delete exactly those files and nothing else. `clearWorkspace(path)` is the explicit delete-everything action |
+| Chat sessions | Each analysis run is stored under `/epf/home/sessions`; the Outputs → Chats tab streams follow-ups and keeps reasoning for replay. Chat needs write access (the results viewer is read-only) |
 | Multiple tabs | The first tab takes a Web Locks lock for writing; other tabs run read-only (the results viewer reads the persisted store) or memory-only |
 | Provider calls | Direct from the browser, so the provider endpoint must allow CORS. Anthropic additionally refuses cross-origin requests unless the provider sets `headers = { "anthropic-dangerous-direct-browser-access" = "true" }`; any `[llm.providers.*] headers` are passed through to the SDK |
 

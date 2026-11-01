@@ -8,6 +8,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 
 import { WebEPF } from "./web-host.ts";
 import { createMemoryStorage } from "../platform/web/web-state.ts";
+import { ChatSessionSchema, assistantMessage, userMessage } from "../util/chat-session.ts";
+import type { ChatClient } from "../util/chat-service.ts";
 
 const REPO_CONFIG = `version = 5
 
@@ -758,5 +760,81 @@ describe("config library and editor support", () => {
         await epf.saveEditorDraft(draft);
         await epf.clearEditorDrafts();
         expect((await epf.readEditorDrafts()).drafts).toEqual({});
+    });
+
+    test("lists, reads and streams chat sessions stored in the home directory", async () => {
+        const chatClient: ChatClient = {
+            async chatStream(_log, _warn, _model, _system, messages, handlers) {
+                // The stored history (initial user + initial assistant) plus the new message.
+                expect(messages).toHaveLength(3);
+                handlers?.onText?.("Helper.cs defines one class.");
+                return {
+                    status: "succeeded",
+                    text: "Helper.cs defines one class.",
+                    reasoning: "the file is small",
+                    responseMessages: [assistantMessage("Helper.cs defines one class.")],
+                    metrics: {
+                        model: "general_analysis",
+                        provider: "mock",
+                        promptTokens: 10,
+                        completionTokens: 5,
+                        totalTokens: 15,
+                        finishReason: "stop",
+                        latencyMs: 3,
+                        attempts: 1,
+                    },
+                };
+            },
+        };
+        const sessionEpf = await WebEPF.create({
+            persist: false,
+            skipSessionLock: true,
+            storage: createMemoryStorage(),
+            root: "/session-test",
+            configSource: { kind: "inline", text: REPO_CONFIG, label: "session test" },
+            chatClient,
+        });
+        const workspace = sessionEpf.requireActiveWorkspace();
+        const at = "2026-10-30T10:15:00.000Z";
+        const session = ChatSessionSchema.parse({
+            version: 1,
+            id: "20261030-101500-repo_analysis-r1",
+            created_at: at,
+            updated_at: at,
+            origin: "web",
+            workspace: workspace.path,
+            workflow: { slug: "repo_analysis", kind: "analysis", run: 1, model: "general_analysis" },
+            system_prompt: "Review the attached files.",
+            messages: [userMessage("Initial request"), assistantMessage("Initial review")],
+            meta: [{ at, initial: true, files: ["src/Program.cs"] }, { at }],
+            outputs: [{ filename: "repo_analysis.epf.md" }],
+        });
+        // Sessions live outside the workspace tree, so quota cleanup never removes them.
+        expect(sessionEpf.web.homeDir.startsWith(`${workspace.path}/`)).toBe(false);
+        await sessionEpf.web.storageFs.writeText(
+            `${sessionEpf.web.homeDir}/sessions/${session.id}.json`,
+            JSON.stringify(session),
+        );
+
+        const summaries = await sessionEpf.listSessions();
+        expect(summaries).toHaveLength(1);
+        expect(summaries[0]!.id).toBe(session.id);
+        expect(summaries[0]!.workspace).toBe(workspace.path);
+        expect(await sessionEpf.listSessions("/elsewhere")).toEqual([]);
+
+        const read = await sessionEpf.readSession(session.id);
+        expect(read?.messages).toHaveLength(2);
+
+        const deltas: string[] = [];
+        const outcome = await sessionEpf.chatSession(session.id, "What about Helper.cs?", {
+            onText: (delta) => deltas.push(delta),
+        });
+        expect(outcome.status).toBe("succeeded");
+        expect(deltas).toEqual(["Helper.cs defines one class."]);
+        expect(outcome.session.messages).toHaveLength(4);
+        expect((await sessionEpf.readSession(session.id))?.messages).toHaveLength(4);
+
+        expect(await sessionEpf.deleteSession(session.id)).toBe(true);
+        expect(await sessionEpf.readSession(session.id)).toBeNull();
     });
 });

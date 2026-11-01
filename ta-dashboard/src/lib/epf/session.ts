@@ -34,6 +34,11 @@ import type { Engine, WorkflowRunResult } from "$epf/engine/engine.ts";
 import type { LogEntry } from "$epf/platform/types.ts";
 import type { StorageSettings, WorkspaceOrigin, WorkspaceState } from "$epf/platform/web/web-state.ts";
 import type { ConfigSource, ConfigValidation } from "$epf/util/config-loader.ts";
+import { userMessage } from "$epf/util/chat-session.ts";
+import { cloneSession, lastUserIndex, truncateSession } from "$epf/util/chat-service.ts";
+import type { ChatSession, ChatSessionSummary } from "$epf/util/chat-session.ts";
+import type { ChatStreamHandlers } from "$epf/util/llm.ts";
+import type { ChatOutcome } from "$epf/util/chat-service.ts";
 import type { EditorDraft, EditorDraftFile } from "$epf/util/editor-draft.ts";
 import type { ResultFileContent, ResultFileEntry } from "$lib/results/file-sources";
 
@@ -45,6 +50,13 @@ export type EnvVarValue = {
 	name: string;
 	value: string;
 	persisted: boolean;
+};
+
+/** Live output of a streaming chat turn. */
+export type ChatStreamingState = {
+	active: boolean;
+	text: string;
+	reasoning: string;
 };
 
 class EpfSession {
@@ -75,12 +87,23 @@ class EpfSession {
 	readonly initialized = writable(false);
 	/** Bumped by clearLog() so the console can rebuild its terminal. */
 	readonly consoleEpoch = writable(0);
+	/** Recorded chat sessions for the active workspace. */
+	readonly chatSessions = writable<ChatSessionSummary[]>([]);
+	readonly activeChatSession = writable<ChatSession | null>(null);
+	readonly chatStreaming = writable<ChatStreamingState>({ active: false, text: "", reasoning: "" });
+	readonly chatBusy = writable(false);
+	readonly chatError = writable<string | null>(null);
 
 	private epf: WebEPF | null = null;
 	private creating: Promise<WebEPF> | null = null;
 	private access: "read-write" | "read-only" = "read-write";
 	private busyCount = 0;
 	private logBuffer: LogEntry[] = [];
+	private activeChatId: string | null = null;
+	/** Mirror of `activeChatSession` for optimistic updates during a stream. */
+	private activeSession: ChatSession | null = null;
+	private chatAbort: AbortController | null = null;
+	private chatRunning = false;
 	private readonly logListeners: Set<(entry: LogEntry) => void> = new Set();
 	private unsubscribeLogs: (() => void) | null = null;
 	private unsubscribeEngineChange: (() => void) | null = null;
@@ -167,6 +190,8 @@ class EpfSession {
 
 	/** Drop listeners so a session can be replaced. */
 	private detach(): void {
+		this.chatAbort?.abort();
+		this.chatAbort = null;
 		this.unsubscribeLogs?.();
 		this.unsubscribeLogs = null;
 		this.unsubscribeEngineChange?.();
@@ -208,6 +233,9 @@ class EpfSession {
 			if (event.type === "files-changed") {
 				void this.refreshOutputs();
 			}
+			if (event.type === "session-changed") {
+				void this.refreshChatSessions();
+			}
 		});
 		this.refreshStatus();
 	}
@@ -220,7 +248,8 @@ class EpfSession {
 			this.refreshOutputs(),
 			this.refreshUsage(),
 			this.refreshConfig(),
-			this.refreshHomeConfigs()
+			this.refreshHomeConfigs(),
+			this.refreshChatSessions()
 		]);
 		this.refreshEnvValues();
 	}
@@ -711,6 +740,152 @@ class EpfSession {
 		});
 		this.outputCache.clear();
 		await this.refreshAll();
+	}
+
+	// --- Chat sessions ---
+
+	/** Reload the session list for the active workspace. */
+	async refreshChatSessions(): Promise<void> {
+		const epf = this.epf ?? await this.ensure({ writeAccess: false });
+		try {
+			this.chatSessions.set(await epf.listSessions());
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.chatSessions.set([]);
+			console.error("Could not list chat sessions", message);
+		}
+	}
+
+	async openChatSession(id: string): Promise<ChatSession | null> {
+		const epf = this.epf ?? await this.ensure({ writeAccess: false });
+		const session = await epf.readSession(id);
+		this.activeChatId = session?.id ?? null;
+		this.setActiveSession(session);
+		this.chatError.set(null);
+		return session;
+	}
+
+	private setActiveSession(session: ChatSession | null): void {
+		this.activeSession = session;
+		this.activeChatSession.set(session);
+	}
+
+	async sendChatMessage(text: string): Promise<void> {
+		if (this.chatRunning) {
+			return;
+		}
+		const id = this.activeChatId;
+		if (id === null) {
+			throw new Error("Open a chat session first.");
+		}
+		const current = this.activeSession;
+		if (current !== null) {
+			// Show the user's turn immediately; the canonical session arrives when
+			// the stream finishes (the service persists the same message first).
+			const optimistic = cloneSession(current);
+			optimistic.messages.push(userMessage(text.trim()));
+			optimistic.meta.push({ at: new Date().toISOString() });
+			this.setActiveSession(optimistic);
+		}
+		await this.runChat((epf, handlers, signal) => epf.chatSession(id, text, handlers, signal));
+	}
+
+	async regenerateChat(): Promise<void> {
+		if (this.chatRunning) {
+			return;
+		}
+		const id = this.activeChatId;
+		if (id === null) {
+			throw new Error("Open a chat session first.");
+		}
+		const current = this.activeSession;
+		if (current !== null) {
+			const index = lastUserIndex(current.messages);
+			if (index >= 0) {
+				this.setActiveSession(truncateSession(current, index + 1));
+			}
+		}
+		await this.runChat((epf, handlers, signal) => epf.regenerateSession(id, handlers, signal));
+	}
+
+	async editChatMessage(messageIndex: number, text: string): Promise<void> {
+		if (this.chatRunning) {
+			return;
+		}
+		const id = this.activeChatId;
+		if (id === null) {
+			throw new Error("Open a chat session first.");
+		}
+		const current = this.activeSession;
+		if (current !== null) {
+			const next = truncateSession(current, messageIndex + 1);
+			next.messages[messageIndex] = userMessage(text.trim());
+			next.meta[messageIndex] = { ...next.meta[messageIndex], at: new Date().toISOString() };
+			this.setActiveSession(next);
+		}
+		await this.runChat((epf, handlers, signal) => epf.editSessionMessage(id, messageIndex, text, handlers, signal));
+	}
+
+	/** Abort the current stream; the partial reply is kept and marked stopped. */
+	stopChat(): void {
+		this.chatAbort?.abort();
+	}
+
+	async deleteChatSession(id: string): Promise<void> {
+		const epf = await this.ensure();
+		await this.withBusy(async () => {
+			await epf.deleteSession(id);
+		});
+		if (this.activeChatId === id) {
+			this.activeChatId = null;
+			this.setActiveSession(null);
+		}
+		await this.refreshChatSessions();
+	}
+
+	private async runChat(
+		action: (
+			epf: WebEPF,
+			handlers: ChatStreamHandlers,
+			signal: AbortSignal
+		) => Promise<ChatOutcome>
+	): Promise<void> {
+		if (this.chatRunning) {
+			return;
+		}
+		this.chatRunning = true;
+		this.chatBusy.set(true);
+		this.chatError.set(null);
+		this.chatStreaming.set({ active: true, text: "", reasoning: "" });
+		const controller = new AbortController();
+		this.chatAbort = controller;
+		const handlers: ChatStreamHandlers = {
+			onText: (delta) => this.chatStreaming.update((state) => ({ ...state, text: state.text + delta })),
+			onReasoning: (delta) => this.chatStreaming.update((state) => ({ ...state, reasoning: state.reasoning + delta }))
+		};
+
+		try {
+			const epf = await this.ensure();
+			const outcome = await action(epf, handlers, controller.signal);
+			this.activeChatId = outcome.session.id;
+			this.setActiveSession(outcome.session);
+			if (outcome.status === "failed") {
+				this.chatError.set(outcome.error ?? "The reply failed.");
+			}
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.chatError.set(message);
+		} finally {
+			this.chatStreaming.set({ active: false, text: "", reasoning: "" });
+			this.chatBusy.set(false);
+			this.chatAbort = null;
+			this.chatRunning = false;
+			try {
+				await this.refreshChatSessions();
+			} catch {
+				// Listing failures are already logged; the chat itself succeeded.
+			}
+		}
 	}
 
 	clearLog(): void {

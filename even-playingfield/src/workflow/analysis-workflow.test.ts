@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { CURRENT_CONFIG_VERSION, ConfigSchema } from "../util/config-schema.ts";
 import { OutputViewer } from "../util/output-viewer.ts";
 import { createZenFileSystem } from "../platform/web/zen-vfs.ts";
+import { SessionStore } from "../util/session-store.ts";
+import { messageReasoning, messageText } from "../util/chat-session.ts";
 import { executeAnalysisWorkflow } from "./analysis-workflow.ts";
 import type { CompletionClient, WorkflowDependencies } from "./index.ts";
 import type { Config } from "../util/config-schema.ts";
@@ -36,6 +38,15 @@ function createFakeClient(text = "## Review\n\nLooks fine."): { client: Completi
                     latencyMs: 1,
                     attempts: 1,
                 },
+                system: systemPrompt,
+                requestMessages: [{ role: "user", content }],
+                responseMessages: [{
+                    role: "assistant",
+                    content: [
+                        { type: "reasoning", text: "reviewed the files" },
+                        { type: "text", text },
+                    ],
+                }],
             };
         },
     };
@@ -91,6 +102,7 @@ async function buildDeps(
         outputViewer: new OutputViewer(fs),
         config,
         llmClient: client,
+        sessionStore: new SessionStore(fs, "/analysis-test/sessions"),
         fs,
         env: { get: () => undefined, set: () => {}, all: () => ({}) },
         shell: {
@@ -191,5 +203,29 @@ describe("executeAnalysisWorkflow", () => {
         expect(result.status).toBe("failed");
         expect(result.error).toBe("provider exploded");
         expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    test("records a chat session with the request, reply and reasoning", async () => {
+        const config = buildConfig();
+        const { client } = createFakeClient();
+        const { deps } = await buildDeps(config, client);
+
+        const result = await executeAnalysisWorkflow(config.analysis_workflows[0]!, 1, deps);
+
+        expect(result.sessionId).toBeDefined();
+        const sessions = await deps.sessionStore!.list();
+        expect(sessions).toHaveLength(1);
+        const session = sessions[0]!;
+        expect(session.id).toBe(result.sessionId!);
+        expect(session.origin).toBe("cli");
+        expect(session.workspace).toBe("/analysis-test");
+        expect(session.workflow.slug).toBe("analysis");
+        expect(session.messages).toHaveLength(2);
+        expect(session.meta[0]!.initial).toBe(true);
+        expect(session.meta[0]!.files).toContain("src/Program.cs");
+        expect(messageText(session.messages[1]!)).toContain("Looks fine");
+        expect(messageReasoning(session.messages[1]!)).toBe("reviewed the files");
+        expect(session.meta[1]!.metrics?.model).toBe("general_analysis");
+        expect(session.outputs[0]!.filename).toBe(result.outputs[0]!.filename);
     });
 });

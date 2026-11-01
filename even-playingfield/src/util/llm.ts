@@ -1,4 +1,4 @@
-import { generateText, type JSONValue, type LanguageModel } from "ai";
+import { generateText, streamText, type JSONValue, type LanguageModel, type ModelMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -19,6 +19,43 @@ export type CompletionMetrics = {
     finishReason: string;
     latencyMs: number;
     attempts: number;
+};
+
+/** What `generateCompletion` returns. Extra fields let a host persist the run. */
+export type CompletionResult = {
+    text: string;
+    model: string;
+    metrics: CompletionMetrics;
+    /** System prompt after prompt replacement. */
+    system: string;
+    /** The messages that were sent (user content after prompt replacement). */
+    requestMessages: ModelMessage[];
+    /** The assistant message(s) that were generated, including reasoning parts. */
+    responseMessages: ModelMessage[];
+};
+
+/** Progress callbacks for a streamed chat turn. */
+export type ChatStreamHandlers = {
+    onText?: (delta: string) => void;
+    onReasoning?: (delta: string) => void;
+};
+
+/** Result of one streamed chat turn. Failures keep their partial output. */
+export type ChatStreamResult = {
+    status: "succeeded" | "failed";
+    text: string;
+    reasoning: string;
+    /** Assistant messages from a successful turn (empty when it failed). */
+    responseMessages: ModelMessage[];
+    metrics: CompletionMetrics | null;
+    error?: string;
+};
+
+type ModelContext = {
+    modelSettings: ModelConfig;
+    providerConfig: LLMConfig["providers"][string];
+    languageModel: LanguageModel;
+    providerOptions: Record<string, Record<string, JSONValue>>;
 };
 
 /**
@@ -97,11 +134,8 @@ export class LlmClient {
         }
     }
 
-    async generateCompletion(log: (..._: any[]) => void,
-                             warn: (..._: any[]) => void,
-                             model: string,
-                             systemPrompt: string,
-                             content: UserContent): Promise<{ text: string; model: string; metrics: CompletionMetrics }> {
+    /** Resolve a model key into everything a completion request needs. */
+    private resolveModelContext(model: string): ModelContext {
         const modelSettings = this.llm.models[model];
         if (!modelSettings) {
             throw new Error(`No model settings found for model "${model}"`);
@@ -112,6 +146,21 @@ export class LlmClient {
             throw new Error(`Model "${model}" references unknown provider "${modelSettings.provider}"`);
         }
 
+        const provider = this.createProvider(modelSettings.provider);
+        return {
+            modelSettings,
+            providerConfig,
+            languageModel: provider(modelSettings.model_name),
+            providerOptions: this.buildProviderOptions(modelSettings, providerConfig.sdk),
+        };
+    }
+
+    /**
+     * Replace `{{name}}` placeholders in the system prompt and user content.
+     * Workflow runs use this; chat turns replay already-resolved text verbatim.
+     */
+    private applyPromptReplacements(systemPrompt: string,
+                                    content: UserContent): { systemPrompt: string; content: UserContent; replacedCount: number } {
         let replacedCount = 0;
         for (const [replacementKey, replacementValue] of Object.entries(this.llm.prompt_replacement)) {
             if (systemPrompt.includes(replacementKey)) { replacedCount++; }
@@ -133,17 +182,45 @@ export class LlmClient {
                 }
             }
         }
-        log(`Replaced ${replacedCount} instances of prompt variables in system prompt and content`);
+        return { systemPrompt, content, replacedCount };
+    }
+
+    private buildMetrics(model: string,
+                         modelSettings: ModelConfig,
+                         usage: { inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null },
+                         finishReason: string,
+                         latencyMs: number,
+                         attempts: number): CompletionMetrics {
+        return {
+            model,
+            provider: modelSettings.provider,
+            promptTokens: usage.inputTokens ?? 0,
+            completionTokens: usage.outputTokens ?? 0,
+            totalTokens: usage.totalTokens ?? 0,
+            finishReason,
+            latencyMs,
+            attempts,
+        };
+    }
+
+    async generateCompletion(log: (..._: any[]) => void,
+                             warn: (..._: any[]) => void,
+                             model: string,
+                             systemPrompt: string,
+                             content: UserContent): Promise<CompletionResult> {
+        const context = this.resolveModelContext(model);
+        const replaced = this.applyPromptReplacements(systemPrompt, content);
+        systemPrompt = replaced.systemPrompt;
+        content = replaced.content;
+        log(`Replaced ${replaced.replacedCount} instances of prompt variables in system prompt and content`);
 
         const userMessage: { role: "user"; content: UserContent } = {
             role: "user",
             content: content,
         };
+        const requestMessages: ModelMessage[] = [userMessage as ModelMessage];
 
-        const provider = this.createProvider(modelSettings.provider);
-        const languageModel = provider(modelSettings.model_name);
-        const providerOptions = this.buildProviderOptions(modelSettings, providerConfig.sdk);
-
+        const { modelSettings, providerOptions } = context;
         const maxRetries = modelSettings.max_retries;
         const retryDelayMs = modelSettings.retry_delay_ms;
         const totalAttempts = maxRetries + 1;
@@ -164,9 +241,9 @@ export class LlmClient {
 
             try {
                 const result = await generateText({
-                    model: languageModel,
+                    model: context.languageModel,
                     system: systemPrompt,
-                    messages: [userMessage],
+                    messages: requestMessages,
                     maxOutputTokens: modelSettings.max_completion_tokens,
                     temperature: modelSettings.temperature,
                     topP: modelSettings.top_p,
@@ -180,27 +257,39 @@ export class LlmClient {
                 log(`Completion response received in ${latencyMs / 1000}s (attempt ${attemptLabel})`);
 
                 const text = result.text;
-                const metrics: CompletionMetrics = {
+                const metrics = this.buildMetrics(
                     model,
-                    provider: modelSettings.provider,
-                    promptTokens: result.usage.inputTokens ?? 0,
-                    completionTokens: result.usage.outputTokens ?? 0,
-                    totalTokens: result.usage.totalTokens ?? 0,
-                    finishReason: result.finishReason,
+                    modelSettings,
+                    result.usage,
+                    result.finishReason,
                     latencyMs,
-                    attempts: attempt + 1,
-                };
+                    attempt + 1,
+                );
+                const responseMessages = result.response.messages as ModelMessage[];
                 if (text.length === 0) {
                     warn(`Empty completion on attempt ${attemptLabel}`);
-                    console.log(result);
                     if (attempt < maxRetries) {
                         continue;
                     }
                     warn("Exhausted all retries — returning empty completion");
-                    return { text: "", model: result.response.modelId, metrics };
+                    return {
+                        text: "",
+                        model: result.response.modelId,
+                        metrics,
+                        system: systemPrompt,
+                        requestMessages,
+                        responseMessages,
+                    };
                 }
 
-                return { text, model: result.response.modelId, metrics };
+                return {
+                    text,
+                    model: result.response.modelId,
+                    metrics,
+                    system: systemPrompt,
+                    requestMessages,
+                    responseMessages,
+                };
 
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
@@ -212,6 +301,139 @@ export class LlmClient {
 
         warn("Exhausted all retries due to errors — re-throwing last error");
         throw lastError;
+    }
+
+    /**
+     * Stream one chat turn. Tokens are handed to `handlers` as they arrive; the
+     * final assistant messages (including reasoning parts) are returned for the
+     * caller to persist.
+     *
+     * Retries happen only while nothing has been emitted, because replaying a
+     * partially visible answer would duplicate output in the transcript.
+     */
+    async chatStream(log: (..._: any[]) => void,
+                     warn: (..._: any[]) => void,
+                     model: string,
+                     systemPrompt: string,
+                     messages: ModelMessage[],
+                     handlers: ChatStreamHandlers = {},
+                     signal?: AbortSignal): Promise<ChatStreamResult> {
+        const context = this.resolveModelContext(model);
+        const { modelSettings, providerOptions } = context;
+        const maxRetries = modelSettings.max_retries;
+        const retryDelayMs = modelSettings.retry_delay_ms;
+        const totalAttempts = maxRetries + 1;
+
+        let partialText = "";
+        let partialReasoning = "";
+        let emitted = 0;
+        let lastError: unknown = null;
+
+        for (let attempt = 0; attempt < totalAttempts; attempt++) {
+            const attemptLabel = `${attempt + 1}/${totalAttempts}`;
+
+            if (attempt > 0) {
+                const backoffMs = retryDelayMs * (2 ** (attempt - 1)) + Math.random() * 200;
+                warn(`Retrying after ${Math.round(backoffMs)}ms (attempt ${attemptLabel})...`);
+                await delay(backoffMs);
+            }
+
+            log(`Sending streamed chat request (attempt ${attemptLabel})...`);
+            const startTime = Date.now();
+
+            try {
+                const result = streamText({
+                    model: context.languageModel,
+                    system: systemPrompt,
+                    messages,
+                    maxOutputTokens: modelSettings.max_completion_tokens,
+                    temperature: modelSettings.temperature,
+                    topP: modelSettings.top_p,
+                    frequencyPenalty: modelSettings.frequency_penalty,
+                    presencePenalty: modelSettings.presence_penalty,
+                    seed: modelSettings.seed,
+                    maxRetries: 0,
+                    providerOptions,
+                    abortSignal: signal,
+                });
+
+                for await (const part of result.fullStream) {
+                    switch (part.type) {
+                        case "text-delta":
+                            partialText += part.text;
+                            emitted += 1;
+                            handlers.onText?.(part.text);
+                            break;
+                        case "reasoning-delta":
+                            partialReasoning += part.text;
+                            emitted += 1;
+                            handlers.onReasoning?.(part.text);
+                            break;
+                        case "error":
+                            throw part.error instanceof Error ? part.error : new Error(String(part.error));
+                        case "abort":
+                            throw new ChatAbortedError(part.reason);
+                        default:
+                            break;
+                    }
+                }
+
+                const [response, usage, finishReason] = await Promise.all([
+                    result.response,
+                    result.usage,
+                    result.finishReason,
+                ]);
+                const latencyMs = Date.now() - startTime;
+                log(`Stream finished in ${latencyMs / 1000}s (attempt ${attemptLabel})`);
+
+                return {
+                    status: "succeeded",
+                    text: partialText,
+                    reasoning: partialReasoning,
+                    responseMessages: response.messages as ModelMessage[],
+                    metrics: this.buildMetrics(model, modelSettings, usage, finishReason, latencyMs, attempt + 1),
+                };
+            } catch (error) {
+                const aborted = signal?.aborted === true || error instanceof ChatAbortedError;
+                const message = aborted
+                    ? "Stopped."
+                    : error instanceof Error ? error.message : String(error);
+                warn(`Streamed chat error on attempt ${attemptLabel}: ${message}`);
+                lastError = error;
+
+                // Once output is visible, a retry would duplicate it in the
+                // transcript. Keep the partial answer and report the failure.
+                if (emitted > 0 || aborted) {
+                    return {
+                        status: "failed",
+                        text: partialText,
+                        reasoning: partialReasoning,
+                        responseMessages: [],
+                        metrics: null,
+                        error: message,
+                    };
+                }
+            }
+        }
+
+        const message = lastError instanceof Error ? lastError.message : String(lastError ?? "Unknown error");
+        warn("Exhausted all retries due to errors — returning the failure to the caller");
+        return {
+            status: "failed",
+            text: partialText,
+            reasoning: partialReasoning,
+            responseMessages: [],
+            metrics: null,
+            error: message,
+        };
+    }
+}
+
+/** Thrown internally when the caller aborts a streamed turn. */
+export class ChatAbortedError extends Error {
+    constructor(reason?: string) {
+        super(reason !== undefined && reason.length > 0 ? reason : "Chat stream aborted");
+        this.name = "ChatAbortedError";
     }
 }
 

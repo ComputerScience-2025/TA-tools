@@ -4,7 +4,10 @@ import { executeAnalysisWorkflow, type AnalysisWorkflowResult } from "../workflo
 import { executeTestingWorkflow, type TestingWorkflowResult } from "../workflow/testing-workflow.ts";
 import type { WorkflowDependencies } from "../workflow/index.ts";
 import { loadConfig } from "../util/config-loader.ts";
-import { LlmClient, type CompletionMetrics } from "../util/llm.ts";
+import { LlmClient, type ChatStreamHandlers, type CompletionMetrics } from "../util/llm.ts";
+import { ChatService, type ChatClient, type ChatOutcome } from "../util/chat-service.ts";
+import { SessionStore, sessionDirectory } from "../util/session-store.ts";
+import type { ChatSession, ChatSessionSummary } from "../util/chat-session.ts";
 import type { Config, ConfigSource } from "../util/config-loader.ts";
 import type { LogLevel, Logger, Platform, VirtualFileSystem } from "../platform/types.ts";
 
@@ -17,6 +20,8 @@ export type WorkflowRunResult = {
     outputs?: { filename: string; content: string }[];
     completions?: CompletionMetrics[];
     testCases?: { name: string; passed: boolean; explanation?: string }[];
+    /** Recorded chat session for this run, when session storage is enabled. */
+    sessionId?: string;
 };
 
 export type EngineStatus = {
@@ -32,9 +37,18 @@ export type EngineEvent =
     | { type: "log"; level: LogLevel; message: string; slug?: string }
     | { type: "run-started"; slug: string; runNumber: number }
     | { type: "run-finished"; result: WorkflowRunResult }
+    | { type: "session-changed"; id: string }
     | { type: "files-changed" };
 
 export type EngineListener = (event: EngineEvent) => void;
+
+/** Optional collaborators, mainly for hosts and tests. */
+export type EngineOptions = {
+    /** Where sessions are stored. Defaults to `<home>/.even-pf/sessions`. */
+    sessionStore?: SessionStore;
+    /** Streaming client for chat turns. Defaults to the engine's LlmClient. */
+    chatClient?: ChatClient;
+};
 
 /**
  * Stateful core that owns the OutputViewer, WorkflowDependencies, and
@@ -50,17 +64,28 @@ export class Engine {
     private readonly platform: Platform;
     private readonly inFlightSlugs: Set<string> = new Set();
     private readonly listeners: Set<EngineListener> = new Set();
+    /** Session storage is always available; `[sessions] enabled` gates new runs. */
+    private readonly sessionStore: SessionStore;
+    private readonly chatClient: ChatClient | undefined;
+    private chatService: ChatService | null;
     // Resolved config source from the initial load, so reloadConfig() can
     // re-read from the same place without the host re-supplying it.
     private configSource: ConfigSource | undefined;
 
-    constructor(config: Config, platform: Platform, configSource?: ConfigSource) {
+    constructor(config: Config, platform: Platform, configSource?: ConfigSource, options: EngineOptions = {}) {
         this.config = config;
         this.platform = platform;
         this.configSource = configSource;
         this.outputViewer = new OutputViewer(platform.fs);
+        this.sessionStore = options.sessionStore ?? new SessionStore(
+            platform.fs,
+            sessionDirectory(platform.homeDir ?? platform.fs.root),
+            { onWarning: (message) => platform.logger.log("warn", message) },
+        );
+        this.chatClient = options.chatClient;
         this.llmClient = new LlmClient(config.llm);
         this.deps = this.buildDependencies();
+        this.chatService = this.createChatService();
     }
 
     /** Platform logger plus an event for every line, so hosts can mirror it. */
@@ -76,11 +101,24 @@ export class Engine {
             outputViewer: this.outputViewer,
             config: this.config,
             llmClient: this.llmClient,
+            sessionStore: this.config.sessions.enabled ? this.sessionStore : undefined,
             fs: this.platform.fs,
             env: this.platform.env,
             shell: this.platform.shell,
             logger: this.logger,
         };
+    }
+
+    private createChatService(): ChatService {
+        return new ChatService(
+            this.sessionStore,
+            this.chatClient ?? this.llmClient,
+            {
+                log: (message: string, ...data: unknown[]) => this.logger.log("info", message, { data }),
+                warn: (message: string, ...data: unknown[]) => this.logger.log("warn", message, { data }),
+            },
+            { retainReasoning: this.config.sessions.retain_reasoning },
+        );
     }
 
     /** Subscribe to engine events. Returns an unsubscribe function. */
@@ -175,9 +213,13 @@ export class Engine {
                     outputs: "outputs" in value ? value.outputs : undefined,
                     completions: value.completions,
                     testCases: "testCases" in value ? value.testCases : undefined,
+                    sessionId: "sessionId" in value ? value.sessionId : undefined,
                 };
                 results.push(result);
                 this.emit({ type: "run-finished", result });
+                if (result.sessionId !== undefined) {
+                    this.emit({ type: "session-changed", id: result.sessionId });
+                }
             } else {
                 const errorMsg = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
                 this.logger.log("warn", `Workflow '${run.slug}' run ${run.runNumber} failed: ${errorMsg}`, { data: [outcome.reason] });
@@ -208,6 +250,7 @@ export class Engine {
         // Rebuild the LlmClient so its provider cache resets to the new keys.
         this.llmClient = new LlmClient(this.config.llm);
         this.deps = this.buildDependencies();
+        this.chatService = this.createChatService();
     }
 
     /** Clear output files. If slugs provided, only clear matching filenames. */
@@ -273,6 +316,91 @@ export class Engine {
 
         const unique = [...new Set(knownOutputs)];
         return unique.filter((name) => patterns.some((pattern) => pattern.test(name)));
+    }
+
+    // --- Chat sessions --------------------------------------------------------
+
+    /** True when new workflow runs are recorded as chat sessions. */
+    isSessionRecordingEnabled(): boolean {
+        return this.config.sessions.enabled;
+    }
+
+    /** All recorded sessions, newest first. */
+    async listSessions(): Promise<ChatSessionSummary[]> {
+        return await this.sessionStore.listSummaries();
+    }
+
+    async readSession(id: string): Promise<ChatSession | null> {
+        return await this.sessionStore.read(id);
+    }
+
+    /** Match an id or unique prefix. Returns every match for ambiguity errors. */
+    async findSessions(query: string): Promise<ChatSession[]> {
+        return await this.sessionStore.find(query);
+    }
+
+    async latestSession(): Promise<ChatSession | null> {
+        return await this.sessionStore.latest();
+    }
+
+    /** Send a message and stream the reply. */
+    async chatSession(
+        id: string,
+        text: string,
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatOutcome> {
+        return await this.runChat(id, async (service, session) => service.send(session, text, handlers, signal));
+    }
+
+    /** Drop the last assistant reply and regenerate it. */
+    async regenerateSession(
+        id: string,
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatOutcome> {
+        return await this.runChat(id, async (service, session) => service.regenerate(session, handlers, signal));
+    }
+
+    /** Edit a user message; later turns are dropped and the reply regenerated. */
+    async editSessionMessage(
+        id: string,
+        messageIndex: number,
+        text: string,
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatOutcome> {
+        return await this.runChat(id, async (service, session) => service.edit(session, messageIndex, text, handlers, signal));
+    }
+
+    private async runChat(id: string, action: (service: ChatService, session: ChatSession) => Promise<ChatOutcome>): Promise<ChatOutcome> {
+        const session = await this.requireSession(id);
+        const outcome = await action(this.requireChatService(), session);
+        this.emit({ type: "session-changed", id: outcome.session.id });
+        return outcome;
+    }
+
+    async deleteSession(id: string): Promise<boolean> {
+        const removed = await this.sessionStore.delete(id);
+        if (removed) {
+            this.emit({ type: "session-changed", id });
+        }
+        return removed;
+    }
+
+    private async requireSession(id: string): Promise<ChatSession> {
+        const session = await this.sessionStore.read(id);
+        if (session === null) {
+            throw new Error(`Unknown chat session: ${id}`);
+        }
+        return session;
+    }
+
+    private requireChatService(): ChatService {
+        if (this.chatService === null) {
+            throw new Error("Chat is unavailable in this session.");
+        }
+        return this.chatService;
     }
 
     /** Return current engine state snapshot. */

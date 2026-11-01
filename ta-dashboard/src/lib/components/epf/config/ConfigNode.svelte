@@ -2,6 +2,7 @@
 	import type { ConfigPath } from "$epf/util/config-object.ts";
 	import type { ConfigFieldDescriptor } from "$epf/util/config-form-schema.ts";
 
+	import MarkdownField from "$lib/components/epf/config/MarkdownField.svelte";
 	import { configEditor, configFormDescriptor, configFormError } from "$lib/epf/config-editor.svelte.ts";
 	import {
 		arrayItemLabel,
@@ -657,14 +658,13 @@
 				</div>
 			{/if}
 			{#if descriptor.widget === "textarea"}
-				<textarea
-					id={id}
-					class="textarea is-small is-family-monospace"
-					rows="5"
-					spellcheck="false"
+				<MarkdownField
+					{id}
 					value={value}
-					oninput={(event) => setString(path, descriptor, event)}
-				></textarea>
+					rows={5}
+					disabled={configEditor.readOnly}
+					onInput={(next) => configEditor.setField(path, next, descriptor)}
+				/>
 			{:else if secret}
 				<div class="field has-addons">
 					<div class="control is-expanded">
@@ -741,7 +741,7 @@
 	}
 
 	.config-entry {
-		background: #fafafa;
+		background: var(--bulma-scheme-main-bis);
 	}
 
 	.config-readonly-value {

@@ -385,7 +385,7 @@
 										</div>
 									</div>
 								{:else}
-									<button type="button" class="button is-small is-white has-text-left" onclick={() => void openLibrary(file.name)}>
+									<button type="button" class="button is-small is-ghost has-text-left" onclick={() => void openLibrary(file.name)}>
 										{file.name}
 									</button>
 									{#if isDefault}
@@ -477,7 +477,7 @@
 										</div>
 									</div>
 								{:else}
-									<button type="button" class="button is-small is-white has-text-left" onclick={() => void openWorkspaceFile(name)}>
+									<button type="button" class="button is-small is-ghost has-text-left" onclick={() => void openWorkspaceFile(name)}>
 										{name}
 									</button>
 								{/if}

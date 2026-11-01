@@ -2,8 +2,13 @@ import { scanGlob } from "../platform/glob.ts";
 import { joinPath } from "../platform/path.ts";
 import { FilePayloadGenerator } from "../util/file-payload.ts";
 import { resolveOutputFilename } from "../util/output-filename.ts";
+import {
+    createSessionId,
+    stripReasoning,
+} from "../util/chat-session.ts";
+import type { SessionMessageMeta } from "../util/chat-session.ts";
 import type { WorkflowDependencies } from "./index.ts";
-import type { CompletionMetrics } from "../util/llm.ts";
+import type { CompletionMetrics, CompletionResult } from "../util/llm.ts";
 import type { AnalysisWorkflow } from "../util/config-schema.ts";
 
 export type AnalysisWorkflowResult = {
@@ -14,6 +19,8 @@ export type AnalysisWorkflowResult = {
     latencyMs: number;
     outputs: { filename: string; content: string }[];
     completions: CompletionMetrics[];
+    /** Recorded chat session, when session storage is enabled. */
+    sessionId?: string;
 };
 
 export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum: number, deps: WorkflowDependencies): Promise<AnalysisWorkflowResult> {
@@ -90,12 +97,15 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
         await deps.outputViewer.addFile(outputFileName, { type: "markdown", content: completion.text });
         log(`Completion saved as ${outputFileName}`);
 
+        const sessionId = await recordSession(deps, workflow, runNum, completion, allFiles, outputFileName, log, warn);
+
         return {
             ...resultBase,
             status: "succeeded",
             latencyMs: Date.now() - startTime,
             outputs: [{ filename: outputFileName, content: completion.text }],
             completions: [completion.metrics],
+            sessionId,
         };
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -106,5 +116,67 @@ export async function executeAnalysisWorkflow(workflow: AnalysisWorkflow, runNum
             error: errorMsg,
             latencyMs: Date.now() - startTime,
         };
+    }
+}
+
+/**
+ * Persist the run as a chat session. A failure here is logged but never fails
+ * the workflow: the markdown output is the primary artifact.
+ */
+async function recordSession(
+    deps: WorkflowDependencies,
+    workflow: AnalysisWorkflow,
+    runNum: number,
+    completion: CompletionResult,
+    allFiles: readonly string[],
+    outputFileName: string,
+    log: (message: string, ...data: unknown[]) => void,
+    warn: (message: string, ...data: unknown[]) => void,
+): Promise<string | undefined> {
+    const store = deps.sessionStore;
+    if (store === undefined) {
+        return undefined;
+    }
+
+    try {
+        const now = new Date();
+        const at = now.toISOString();
+        const responseMessages = deps.config.sessions.retain_reasoning
+            ? completion.responseMessages
+            : stripReasoning(completion.responseMessages);
+        const meta: SessionMessageMeta[] = [
+            { at, initial: true, files: [...allFiles] },
+        ];
+        for (let index = 0; index < responseMessages.length; index += 1) {
+            meta.push({
+                at,
+                ...(index === 0 ? { metrics: completion.metrics } : {}),
+            });
+        }
+
+        const session = await store.create({
+            id: createSessionId(workflow.slug, runNum, now),
+            origin: store.origin,
+            workspace: deps.fs.root,
+            workflow: {
+                slug: workflow.slug,
+                kind: "analysis",
+                run: runNum,
+                model: workflow.model,
+                provider_model: completion.model,
+                output_filename: outputFileName,
+            },
+            system_prompt: completion.system,
+            messages: [...completion.requestMessages, ...responseMessages],
+            meta,
+            outputs: [{ filename: outputFileName }],
+            created_at: at,
+        });
+        log(`Chat session saved as ${session.id}`);
+        return session.id;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warn(`Could not save the chat session: ${message}`);
+        return undefined;
     }
 }

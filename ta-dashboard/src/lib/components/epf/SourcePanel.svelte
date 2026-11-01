@@ -302,9 +302,9 @@
 				</thead>
 				<tbody>
 					{#each candidates as workspace (workspace.path)}
-						<tr class={$activeWorkspace?.path === workspace.path ? "is-selected" : ""}>
+						<tr class:is-current={$activeWorkspace?.path === workspace.path}>
 							<td>
-								<button class="button is-small is-white is-fullwidth has-text-left" onclick={() => void activate(workspace)} disabled={$busy}>
+								<button class="button is-small is-ghost is-fullwidth has-text-left" onclick={() => void activate(workspace)} disabled={$busy}>
 									{workspace.label}
 									{#if workspace.pinned}
 										<span class="tag is-small is-warning ml-2">pinned</span>
@@ -386,8 +386,8 @@
 
 <style>
 	.drop-active {
-		border: 2px dashed #485fc7;
-		background-color: rgba(72, 95, 199, 0.05);
+		border: 2px dashed var(--bulma-link);
+		background-color: var(--bulma-link-soft);
 	}
 
 	.file-tree {
@@ -395,7 +395,10 @@
 		overflow-y: auto;
 	}
 
-	tr.is-selected {
-		background-color: rgba(72, 95, 199, 0.1);
+	/* Bulma's own `is-selected` row paints the primary colour, so the active
+	   workspace gets its own theme-aware highlight instead. */
+	tr.is-current td {
+		background-color: color-mix(in srgb, var(--bulma-link) 12%, transparent);
+		color: var(--bulma-text-strong);
 	}
 </style>

@@ -32,6 +32,7 @@ import {
 } from "../util/editor-draft.ts";
 import { planGithubDownload, githubRemote, parseGithubUrl } from "../download/github.ts";
 import { runDownload } from "../download/runner.ts";
+import { SessionStore } from "../util/session-store.ts";
 import { createWebPlatform, storageEstimate } from "../platform/web/web-platform.ts";
 import { basenamePath, dirnamePath, joinPath, resolvePath } from "../platform/path.ts";
 import { CONFIG_URL_ENV_VAR, GITHUB_PAT_ENV_VAR } from "../util/env-vars.ts";
@@ -42,6 +43,9 @@ import type { EngineEvent } from "../engine/engine.ts";
 import type { WebPlatform, WebPlatformOptions } from "../platform/web/web-platform.ts";
 import type { WorkspaceOrigin, WorkspaceState } from "../platform/web/web-state.ts";
 import type { WorkflowRunResult } from "../engine/index.ts";
+import type { ChatSession, ChatSessionSummary } from "../util/chat-session.ts";
+import type { ChatStreamHandlers } from "../util/llm.ts";
+import type { ChatClient, ChatOutcome } from "../util/chat-service.ts";
 import type { EditorDraft, EditorDraftFile } from "../util/editor-draft.ts";
 
 const MAX_WORKSPACE_WALK_DEPTH = 32;
@@ -61,6 +65,7 @@ const BROWSER_HELP_TEXT = `Available commands:
   list             Show all configured workflow slugs
   ls [dir] [--depth N]
                    List workspace files (defaults to the whole tree)
+  chat [--all]     List recorded chat sessions (continue them in the Outputs tab)
   reload           Reload config from the same source as before
   help             Show this help message
   exit / quit      Do nothing (close the browser tab to leave)`;
@@ -68,6 +73,8 @@ const BROWSER_HELP_TEXT = `Available commands:
 export type WebEPFOptions = WebPlatformOptions & {
     /** Skip the automatic config lookup at startup. */
     configSource?: ConfigSource;
+    /** Test seam: replace the streaming chat client. */
+    chatClient?: ChatClient;
 };
 
 export type WorkspaceFile = {
@@ -170,10 +177,20 @@ export class WebEPF {
     private unsubscribeEngineEvents: (() => void) | null = null;
     /** Cached text of the current config source, so refreshes do not refetch URLs. */
     private configTextCache: { source: ConfigSource; text: string } | null = null;
+    /** Durable chat history, outside the quota-evicted workspace tree. */
+    private readonly sessionStore: SessionStore;
 
     private constructor(options: WebEPFOptions, web: WebPlatform) {
         this.options = options;
         this.web = web;
+        this.sessionStore = new SessionStore(
+            web.storageFs,
+            joinPath(web.homeDir, "sessions"),
+            {
+                origin: "web",
+                onWarning: (message) => web.logs.log("warn", message),
+            },
+        );
     }
 
     /**
@@ -367,7 +384,10 @@ export class WebEPF {
             ? { source: resolvedSource, text: resolvedSource.text }
             : null;
         this.rememberConfigSource(resolvedSource);
-        this.setEngine(new Engine(resolved.config, this.web.platform, resolvedSource));
+        this.setEngine(new Engine(resolved.config, this.web.platform, resolvedSource, {
+            sessionStore: this.sessionStore,
+            chatClient: this.options.chatClient,
+        }));
         const workspace = this.getActiveWorkspace();
         if (workspace !== null) {
             this.web.state.touchWorkspace(workspace.path);
@@ -1369,6 +1389,67 @@ export class WebEPF {
         await this.web.storageFs.mkdir(workspace.path);
         this.web.state.clearWorkspaceOutputs(workspace.path);
         this.web.logs.log("info", `Workspace '${workspace.label}' files cleared.`);
+    }
+
+    // --- Chat sessions --------------------------------------------------------
+
+    /**
+     * Recorded chat sessions, newest first. Defaults to the active workspace;
+     * pass `null` to list every workspace.
+     */
+    async listSessions(workspacePath?: string | null): Promise<ChatSessionSummary[]> {
+        const sessions = await this.sessionStore.listSummaries();
+        const scope = workspacePath === undefined ? this.getActiveWorkspace()?.path ?? null : workspacePath;
+        return scope === null ? sessions : sessions.filter((session) => session.workspace === scope);
+    }
+
+    async readSession(id: string): Promise<ChatSession | null> {
+        return await this.sessionStore.read(id);
+    }
+
+    /** Send a chat message. Requires a loaded config and write access. */
+    async chatSession(
+        id: string,
+        text: string,
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatOutcome> {
+        this.assertWritable("Chatting");
+        return await this.requireEngine().chatSession(id, text, handlers, signal);
+    }
+
+    async regenerateSession(
+        id: string,
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatOutcome> {
+        this.assertWritable("Chatting");
+        return await this.requireEngine().regenerateSession(id, handlers, signal);
+    }
+
+    async editSessionMessage(
+        id: string,
+        messageIndex: number,
+        text: string,
+        handlers: ChatStreamHandlers = {},
+        signal?: AbortSignal,
+    ): Promise<ChatOutcome> {
+        this.assertWritable("Editing a chat message");
+        return await this.requireEngine().editSessionMessage(id, messageIndex, text, handlers, signal);
+    }
+
+    async deleteSession(id: string): Promise<boolean> {
+        this.assertWritable("Deleting a chat session");
+        if (this.engine === null) {
+            return await this.sessionStore.delete(id);
+        }
+        return await this.engine.deleteSession(id);
+    }
+
+    /** Remove every recorded session. Returns the ids removed. */
+    async clearSessions(): Promise<string[]> {
+        this.assertWritable("Clearing chat sessions");
+        return await this.sessionStore.clear();
     }
 
     // --- Storage ---

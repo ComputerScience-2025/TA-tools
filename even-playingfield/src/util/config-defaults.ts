@@ -19,6 +19,7 @@ import {
     OutputViewingConfigSchema,
     ProviderConfigSchema,
     ProviderSDKEnum,
+    SessionsConfigSchema,
     TestCaseSchema,
     TestingWorkflowEntrySchema,
 } from "./config-schema.ts";
@@ -27,6 +28,7 @@ import type {
     ModelConfig,
     OutputViewingConfig,
     ProviderConfig,
+    SessionsConfig,
     TestingWorkflow,
 } from "./config-schema.ts";
 
@@ -106,6 +108,10 @@ export function createDefaultOutputViewing(): OutputViewingConfig {
     return getDefaultsForSchema(OutputViewingConfigSchema) as OutputViewingConfig;
 }
 
+export function createDefaultSessions(): SessionsConfig {
+    return getDefaultsForSchema(SessionsConfigSchema) as SessionsConfig;
+}
+
 /**
  * A complete, valid starting config. Used by `config-gen` and by the editor's
  * "New config" action.
@@ -114,6 +120,7 @@ export function createDefaultConfigDocument(): ConfigDocumentObject {
     return {
         version: CURRENT_CONFIG_VERSION,
         output_viewing: createDefaultOutputViewing(),
+        sessions: createDefaultSessions(),
         llm: {
             providers: {
                 openrouter: createDefaultProvider(ProviderSDKEnum.OpenAI, "https://openrouter.ai/api/v1"),
