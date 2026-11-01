@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from "svelte";
+	import { flushSync, tick } from "svelte";
 
 	import { highlightMarkdownSource } from "$lib/markdown-highlight.ts";
 
@@ -39,6 +39,17 @@
 	let gutter = $state(0);
 	/** Escape arms one pass-through so Tab can still move focus out of the field. */
 	let tabExits = false;
+	/**
+	 * Whether the textarea owns the caret. The idle textarea is hidden from the
+	 * page so the highlighted mirror is the only copy of the text that
+	 * find-in-page can see; while editing, both layers stay visible (the
+	 * textarea's own text is transparent) so the token colours are kept.
+	 */
+	let focused = $state(false);
+	/** Caret offset captured by a click on the idle field, applied on focus. */
+	let pendingCaret: number | null = null;
+	/** Idle, the wrapper is the field's tab stop; while editing, the textarea is. */
+	let fieldTabIndex = $derived(disabled ? undefined : focused ? -1 : 0);
 
 	const highlighted = $derived(highlightMarkdown(value));
 
@@ -58,6 +69,112 @@
 		}
 		mirror.scrollTop = textarea.scrollTop;
 		mirror.scrollLeft = textarea.scrollLeft;
+	}
+
+	/** Locate the caret under a viewport point, using either browser API. */
+	function caretRangeAt(clientX: number, clientY: number): Range | null {
+		if (typeof document.caretRangeFromPoint === "function") {
+			const range = document.caretRangeFromPoint(clientX, clientY);
+			if (range !== null) {
+				return range;
+			}
+		}
+		if (typeof document.caretPositionFromPoint !== "function") {
+			return null;
+		}
+		const position = document.caretPositionFromPoint(clientX, clientY);
+		if (position === null) {
+			return null;
+		}
+		const fallback = document.createRange();
+		fallback.setStart(position.offsetNode, position.offset);
+		fallback.collapse(true);
+		return fallback;
+	}
+
+	/**
+	 * Map a viewport point to an offset in the source text. The mirror lays the
+	 * text out exactly like the textarea, so summing its text nodes gives the
+	 * textarea's offsets; the mirror may carry one extra trailing newline, hence
+	 * the clamp.
+	 */
+	function offsetAtPoint(clientX: number, clientY: number): number | null {
+		const pre = mirror;
+		if (pre === null) {
+			return null;
+		}
+		const range = caretRangeAt(clientX, clientY);
+		if (range === null || !pre.contains(range.startContainer)) {
+			return null;
+		}
+		let offset = 0;
+		const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+		let node = walker.nextNode();
+		while (node !== null && node !== range.startContainer) {
+			offset += (node as Text).data.length;
+			node = walker.nextNode();
+		}
+		if (node === null) {
+			return null;
+		}
+		return Math.min(offset + range.startOffset, value.length);
+	}
+
+	/** Reveal the textarea (and its caret) and place the caret at `offset`. */
+	function enterField(offset: number | null): void {
+		const el = textarea;
+		pendingCaret = null;
+		if (el === null || disabled) {
+			return;
+		}
+		// The wrapper forwards focus, so the textarea has to become visible in
+		// this same event turn for the caret and any following drag to land.
+		flushSync(() => {
+			focused = true;
+		});
+		el.focus();
+		const caret = Math.min(offset ?? el.value.length, el.value.length);
+		el.setSelectionRange(caret, caret);
+	}
+
+	function handleFocus(): void {
+		focused = true;
+	}
+
+	function handleBlur(): void {
+		tabExits = false;
+		// Keep the idle mirror showing the same part of the text.
+		syncScroll();
+		focused = false;
+	}
+
+	/** Keyboard focus lands on the wrapper: the idle textarea is not tabbable. */
+	function handleFieldFocus(): void {
+		enterField(pendingCaret);
+	}
+
+	function handleFieldPointerDown(event: MouseEvent): void {
+		if (disabled || focused || event.button !== 0) {
+			return;
+		}
+		pendingCaret = offsetAtPoint(event.clientX, event.clientY);
+	}
+
+	/** Fallback for platforms that focus the wrapper without a mousedown focus. */
+	function handleFieldMouseUp(): void {
+		if (!focused) {
+			enterField(pendingCaret);
+		}
+	}
+
+	/**
+	 * The field's <label> activates the control, but the idle textarea is not
+	 * focusable; a synthetic click still arrives, so use it to reveal the editor.
+	 */
+	function handleControlClick(): void {
+		if (!focused) {
+			enterField(pendingCaret);
+		}
 	}
 
 	/** Grow to fit the content; the CSS min/max heights clamp the result. */
@@ -204,13 +321,25 @@
 	}
 </script>
 
-<div class="md-field" bind:this={field} style="--md-min-rows: {rows}; --md-gutter: {gutter}px">
-	<pre class="md-mirror" bind:this={mirror} aria-hidden="true"><code>{@html highlighted}</code></pre>
+<div
+	class="md-field"
+	bind:this={field}
+	style="--md-min-rows: {rows}; --md-gutter: {gutter}px"
+	role="textbox"
+	aria-multiline="true"
+	aria-readonly={focused ? undefined : true}
+	tabindex={fieldTabIndex}
+	onfocus={handleFieldFocus}
+	onmousedown={handleFieldPointerDown}
+	onmouseup={handleFieldMouseUp}
+>
+	<pre class="md-mirror" bind:this={mirror} aria-hidden={focused}><code>{@html highlighted}</code></pre>
 	<textarea
 		bind:this={textarea}
 		{id}
 		{rows}
 		class="md-input"
+		class:md-input-idle={!focused}
 		{disabled}
 		spellcheck="false"
 		autocapitalize="off"
@@ -218,8 +347,10 @@
 		value={value}
 		oninput={(event) => onInput(event.currentTarget.value)}
 		onkeydown={handleKeydown}
+		onfocus={handleFocus}
+		onblur={handleBlur}
+		onclick={handleControlClick}
 		onscroll={syncScroll}
-		onblur={() => (tabExits = false)}
 	></textarea>
 </div>
 <p class="help">Tab indents, Shift+Tab outdents. Press Esc, then Tab, to move to the next field.</p>
@@ -236,6 +367,10 @@
 		font-size: 0.75rem;
 		line-height: 1.5;
 		tab-size: 4;
+		cursor: text;
+		/* The wrapper is focusable only to forward Tab into the textarea; the
+		   :focus-within border below is the visible focus indicator. */
+		outline: none;
 	}
 
 	.md-field:focus-within {
@@ -295,6 +430,13 @@
 		color: transparent;
 		caret-color: var(--bulma-text-strong);
 		outline: none;
+	}
+
+	/* An idle field hides the textarea so the highlighted mirror is the only
+	   copy of the text that find-in-page can see. Visibility keeps the layout,
+	   so the field's height and the scroll offset survive the switch. */
+	.md-input-idle {
+		visibility: hidden;
 	}
 
 	.md-input::selection {

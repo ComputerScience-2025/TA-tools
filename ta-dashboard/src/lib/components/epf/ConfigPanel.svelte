@@ -441,6 +441,14 @@
 			details = details.parentElement?.closest("details") ?? null;
 		}
 		element.scrollIntoView({ block: "center" });
+		// A Markdown field keeps its textarea unfocusable while idle (so the
+		// highlighted mirror is the only searchable copy); focus the field, which
+		// reveals the editor and hands it the caret.
+		const field = element.closest(".md-field");
+		if (field instanceof HTMLElement && field.tabIndex >= 0) {
+			field.focus();
+			return;
+		}
 		(element as HTMLElement).focus?.();
 	};
 
