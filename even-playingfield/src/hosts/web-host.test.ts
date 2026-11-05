@@ -9,6 +9,16 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { WebEPF } from "./web-host.ts";
 import { createMemoryStorage } from "../platform/web/web-state.ts";
 import { ChatSessionSchema, assistantMessage, userMessage } from "../util/chat-session.ts";
+import {
+    S3_ACCESS_KEY_ID_ENV_VAR,
+    S3_ADDRESSING_STYLE_ENV_VAR,
+    S3_BUCKET_ENV_VAR,
+    S3_ENDPOINT_ENV_VAR,
+    S3_PREFIX_ENV_VAR,
+    S3_PUBLIC_BASE_URL_ENV_VAR,
+    S3_REGION_ENV_VAR,
+    S3_SECRET_ACCESS_KEY_ENV_VAR,
+} from "../util/env-vars.ts";
 import type { ChatClient } from "../util/chat-service.ts";
 
 const REPO_CONFIG = `version = 5
@@ -94,12 +104,69 @@ function json(data: unknown): Response {
 }
 
 const requestedPaths: string[] = [];
+const requestLog: { url: string; init: RequestInit | undefined }[] = [];
+
+let remoteConfigText = REPO_CONFIG;
+let remoteConfigStatus = 200;
+let failS3Put = false;
+const s3Objects = new Map<string, { body: string; etag: string }>();
+
+function remoteConfigVariant(slug: string): string {
+    return REPO_CONFIG.replace("repo_analysis", slug);
+}
 
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const parsed = new URL(url);
     const path = parsed.pathname;
+    const request = input instanceof Request ? input : null;
+    const method = init?.method ?? request?.method ?? "GET";
+    const headers = new Headers(init?.headers ?? request?.headers);
     requestedPaths.push(path);
+    requestLog.push({
+        url,
+        init: {
+            ...init,
+            method,
+            headers,
+        },
+    });
+
+    // --- Remote config (the URL source) ---
+    if (parsed.hostname === "configs.test") {
+        return new Response(remoteConfigText, {
+            status: remoteConfigStatus,
+            headers: { "Content-Type": "application/toml", ETag: '"remote-1"' },
+        });
+    }
+
+    // --- S3-compatible endpoint ---
+    if (parsed.hostname === "s3.test" || parsed.hostname === "bucket.s3.test") {
+        const virtualHosted = parsed.hostname === "bucket.s3.test";
+        const key = decodeURIComponent(
+            virtualHosted ? path.replace(/^\/+/, "") : path.replace(/^\/bucket\//, ""),
+        );
+        const existing = s3Objects.get(key);
+        if (method === "HEAD") {
+            if (existing === undefined) {
+                return new Response(null, { status: 404 });
+            }
+            return new Response(null, { status: 200, headers: { ETag: existing.etag } });
+        }
+        if (method === "PUT") {
+            if (failS3Put || (headers.get("if-match") !== null && headers.get("if-match") !== existing?.etag)) {
+                return new Response("PreconditionFailed", { status: 412 });
+            }
+            if (headers.get("if-none-match") === "*" && existing !== undefined) {
+                return new Response("PreconditionFailed", { status: 412 });
+            }
+            const body = request !== null ? await request.clone().text() : String(init?.body ?? "");
+            const etag = `"s3-${s3Objects.size + 1}"`;
+            s3Objects.set(key, { body, etag });
+            return new Response(null, { status: 200, headers: { ETag: etag } });
+        }
+        return new Response("unexpected S3 method", { status: 405 });
+    }
 
     // --- GitHub REST API ---
     if (path === "/repos/acme/demo") {
@@ -169,6 +236,11 @@ afterAll(() => {
 
 beforeEach(async () => {
     requestedPaths.length = 0;
+    requestLog.length = 0;
+    remoteConfigText = REPO_CONFIG;
+    remoteConfigStatus = 200;
+    failS3Put = false;
+    s3Objects.clear();
     epf = await WebEPF.create({
         persist: false,
         skipSessionLock: true,
@@ -176,6 +248,30 @@ beforeEach(async () => {
         root: "/host-test",
     });
 });
+
+function configureS3(
+    target: WebEPF,
+    addressingStyle: "path" | "virtual" = "path",
+    prefix = "",
+): void {
+    target.web.env.set(S3_ENDPOINT_ENV_VAR, "https://s3.test", { persist: false });
+    target.web.env.set(S3_REGION_ENV_VAR, "auto", { persist: false });
+    target.web.env.set(S3_BUCKET_ENV_VAR, "bucket", { persist: false });
+    target.web.env.set(S3_PREFIX_ENV_VAR, prefix, { persist: false });
+    target.web.env.set(S3_ACCESS_KEY_ID_ENV_VAR, "key-id", { persist: false });
+    target.web.env.set(S3_SECRET_ACCESS_KEY_ENV_VAR, "secret-key", { persist: false });
+    target.web.env.set(S3_ADDRESSING_STYLE_ENV_VAR, addressingStyle, { persist: false });
+}
+
+async function createUrlConfigEpf(): Promise<WebEPF> {
+    return await WebEPF.create({
+        persist: false,
+        skipSessionLock: true,
+        storage: createMemoryStorage(),
+        root: "/url-test",
+        configSource: { kind: "url", url: "https://configs.test/epf.toml" },
+    });
+}
 
 describe("WebEPF", () => {
     test("starts with one empty workspace and no config", async () => {
@@ -591,8 +687,8 @@ search_directory = "src"
         const usage = await epf.getUsage();
         expect(usage.used).toBeGreaterThan(0);
         expect(usage.cap).toBe(128 * 1024 * 1024);
-        // No StorageManager in Bun, so browser figures are absent rather than wrong.
-        expect(usage.browserQuota).toBeNull();
+        // No StorageManager in Bun, so the browser figure is absent rather than wrong.
+        expect(await epf.getBrowserEstimate()).toBeNull();
     });
 
     test("pins and removes workspaces through the state store", async () => {
@@ -612,6 +708,210 @@ search_directory = "src"
             first.workspace.path,
         ].sort());
         expect(await epf.listFiles(second.workspace.path)).toEqual([]);
+    });
+});
+
+describe("remote config freshness", () => {
+    test("re-fetches the URL before a run and applies the new text", async () => {
+        const remote = await createUrlConfigEpf();
+        expect(remote.hasConfig()).toBe(true);
+        expect(remote.getConfig()?.analysis_workflows[0]?.slug).toBe("repo_analysis");
+        expect(remote.getRemoteConfigStatus()?.fetchedAt).not.toBeNull();
+
+        await remote.uploadFiles([
+            { name: "src/Program.cs", bytes: new TextEncoder().encode("class Program {}") },
+        ]);
+        remoteConfigText = remoteConfigVariant("fresh_analysis");
+        const results = await remote.runWorkflows();
+
+        expect(results[0]?.slug).toBe("fresh_analysis");
+        expect(remote.getConfig()?.analysis_workflows[0]?.slug).toBe("fresh_analysis");
+        expect(remote.getRemoteConfigStatus()?.error).toBeNull();
+        expect(remote.getRemoteConfigStatus()?.changedAt).not.toBeNull();
+    });
+
+    test("re-fetches the URL on a refresh", async () => {
+        const remote = await createUrlConfigEpf();
+        const before = requestLog.filter((entry) => entry.url.startsWith("https://configs.test/")).length;
+
+        await remote.refreshRemoteConfig();
+
+        const after = requestLog.filter((entry) => entry.url.startsWith("https://configs.test/")).length;
+        expect(after).toBe(before + 1);
+    });
+
+    test("keeps the last config when a refresh fails", async () => {
+        const remote = await createUrlConfigEpf();
+        remoteConfigStatus = 503;
+
+        const status = await remote.refreshRemoteConfig();
+
+        expect(status?.error).toContain("503");
+        expect(remote.hasConfig()).toBe(true);
+        expect(remote.getConfig()?.analysis_workflows[0]?.slug).toBe("repo_analysis");
+    });
+
+    test("getConfigText refresh returns the changed remote text", async () => {
+        const remote = await createUrlConfigEpf();
+        remoteConfigText = remoteConfigVariant("fresh_analysis");
+
+        const text = await remote.getConfigText({ refresh: true });
+
+        expect(text).toContain("fresh_analysis");
+        expect(remote.getRemoteConfigStatus()?.changedAt).not.toBeNull();
+    });
+
+    test("runs with the last config when the pre-run refresh fails", async () => {
+        const remote = await createUrlConfigEpf();
+        await remote.uploadFiles([
+            { name: "src/Program.cs", bytes: new TextEncoder().encode("class Program {}") },
+        ]);
+        remoteConfigStatus = 503;
+
+        const results = await remote.runWorkflows();
+
+        expect(results[0]?.slug).toBe("repo_analysis");
+        expect(results[0]?.status).toBe("succeeded");
+        expect(remote.getRemoteConfigStatus()?.error).toContain("503");
+    });
+});
+
+describe("S3 config saving", () => {
+    test("saves a config file and refuses to overwrite by accident", async () => {
+        configureS3(epf);
+
+        const saved = await epf.saveConfigToS3(REPO_CONFIG, { key: "shared/epf.toml" });
+
+        expect(saved.bucket).toBe("bucket");
+        expect(saved.key).toBe("shared/epf.toml");
+        expect(s3Objects.get("shared/epf.toml")?.body).toBe(REPO_CONFIG);
+        await expect(epf.saveConfigToS3(REPO_CONFIG, { key: "shared/epf.toml" })).rejects.toThrow("already exists");
+    });
+
+    test("overwrites with an ETag guard", async () => {
+        configureS3(epf);
+        await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml" });
+
+        const saved = await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true });
+
+        expect(saved.etag).not.toBeNull();
+        const puts = requestLog.filter((entry) => entry.init?.method === "PUT");
+        const headers = new Headers(puts[puts.length - 1]?.init?.headers);
+        expect(headers.get("if-match")).not.toBeNull();
+    });
+
+    test("uses the explicit virtual addressing style", async () => {
+        configureS3(epf, "virtual");
+        s3Objects.set("epf.toml", { body: REPO_CONFIG, etag: '"v1"' });
+
+        await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true });
+
+        const puts = requestLog.filter((entry) => entry.init?.method === "PUT");
+        expect(puts[puts.length - 1]?.url.startsWith("https://bucket.s3.test/epf.toml")).toBe(true);
+    });
+
+    test("tests the connection with a HEAD request", async () => {
+        configureS3(epf);
+
+        const result = await epf.testS3Connection();
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.addressingStyle).toBe("path");
+            expect(result.bucket).toBe("bucket");
+            expect(result.key).toBe("epf.toml");
+        }
+    });
+
+    test("tests the connection with the object key being saved", async () => {
+        configureS3(epf);
+
+        const result = await epf.testS3Connection("configs/epf.toml");
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.key).toBe("configs/epf.toml");
+        }
+        const heads = requestLog.filter((entry) => entry.init?.method === "HEAD");
+        expect(heads[heads.length - 1]?.url).toContain("/bucket/configs/epf.toml");
+    });
+
+    test("applies the configured prefix to the connection test and save", async () => {
+        configureS3(epf, "path", "configs");
+        s3Objects.set("configs/epf.toml", { body: REPO_CONFIG, etag: '"v1"' });
+
+        const result = await epf.testS3Connection("epf.toml");
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.key).toBe("configs/epf.toml");
+        }
+
+        const saved = await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true });
+        expect(saved.key).toBe("configs/epf.toml");
+        expect(s3Objects.has("configs/epf.toml")).toBe(true);
+    });
+
+    test("reports a concurrent change instead of clobbering it", async () => {
+        configureS3(epf);
+        await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml" });
+        failS3Put = true;
+
+        await expect(
+            epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true }),
+        ).rejects.toThrow("changed on S3");
+    });
+
+    test("fails before any network call when settings are missing", async () => {
+        const before = requestLog.length;
+
+        await expect(epf.saveConfigToS3(REPO_CONFIG)).rejects.toThrow("EPF_S3_ENDPOINT");
+        expect(requestLog.length).toBe(before);
+    });
+
+    test("does not upload invalid config text", async () => {
+        configureS3(epf);
+
+        await expect(epf.saveConfigToS3("not toml = =", { key: "epf.toml" })).rejects.toThrow();
+        expect(s3Objects.size).toBe(0);
+    });
+
+    test("returns the public URL when a public base is configured", async () => {
+        configureS3(epf);
+        epf.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.example.com/", { persist: false });
+
+        const saved = await epf.saveConfigToS3(REPO_CONFIG, { key: "shared/epf.toml" });
+
+        expect(saved.publicURL).toBe("https://configs.example.com/shared/epf.toml");
+    });
+
+    test("uses the S3 ETag captured when the public URL was read", async () => {
+        const remote = await createUrlConfigEpf();
+        configureS3(remote);
+        remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/", { persist: false });
+        s3Objects.set("epf.toml", { body: REPO_CONFIG, etag: '"remote-1"' });
+        await remote.loadConfigSource({ kind: "url", url: "https://configs.test/epf.toml" });
+        requestLog.length = 0;
+
+        await remote.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true });
+
+        const puts = requestLog.filter((entry) => entry.init?.method === "PUT");
+        const headers = new Headers(puts[puts.length - 1]?.init?.headers);
+        expect(headers.get("if-match")).toBe('"remote-1"');
+        expect(requestLog.some((entry) => entry.init?.method === "HEAD")).toBe(false);
+    });
+
+    test("rejects an overwrite when the object changed after it was read", async () => {
+        const remote = await createUrlConfigEpf();
+        configureS3(remote);
+        remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/", { persist: false });
+        s3Objects.set("epf.toml", { body: REPO_CONFIG, etag: '"v1"' });
+        await remote.loadConfigSource({ kind: "url", url: "https://configs.test/epf.toml" });
+        // Another person saves between our read and our save.
+        s3Objects.set("epf.toml", { body: REPO_CONFIG, etag: '"v2"' });
+
+        await expect(
+            remote.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true }),
+        ).rejects.toThrow("changed on S3");
     });
 });
 

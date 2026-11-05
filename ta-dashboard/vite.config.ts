@@ -19,7 +19,9 @@ export default defineConfig({
 			'ai',
 			'@ai-sdk/openai',
 			'@ai-sdk/anthropic',
-			'@ai-sdk/google'
+			'@ai-sdk/google',
+			'@aws-sdk/client-s3',
+			'@smithy/fetch-http-handler'
 		]
 	},
 	server: {

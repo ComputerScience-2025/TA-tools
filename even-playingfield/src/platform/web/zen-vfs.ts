@@ -63,7 +63,7 @@ export async function createZenFileSystem(options: ZenMountOptions = {}): Promis
         await configure({ mounts: { "/": InMemory } });
     }
 
-    const fs = new ZenFileSystem(root);
+    const fs = new ZenFileSystem(root, { readOnly: options.writeAccess === false });
     if (options.writeAccess !== false) {
         await fs.mkdir(root);
     }
@@ -83,14 +83,29 @@ type ZenDirent = {
 
 export class ZenFileSystem implements VirtualFileSystem {
     readonly root: string;
+    private readonly readOnly: boolean;
 
-    constructor(root: string = WEB_WORKSPACE_ROOT) {
+    constructor(root: string = WEB_WORKSPACE_ROOT, options: { readOnly?: boolean } = {}) {
         this.root = root;
+        this.readOnly = options.readOnly === true;
     }
 
     /** Absolute ZenFS path for a VFS path (absolute or root-relative). */
     private resolve(path: string): string {
         return resolvePath(this.root, path);
+    }
+
+    /**
+     * A mount the tab may not write to (another tab owns the store, or the
+     * viewer asked for read-only) refuses mutations here as well as in the host,
+     * so nothing can slip past the platform boundary.
+     */
+    private assertWritable(action: string): void {
+        if (this.readOnly) {
+            throw new Error(
+                `Cannot ${action}: this browser session is read-only because another tab owns browser storage.`,
+            );
+        }
     }
 
     async readText(path: string): Promise<string> {
@@ -103,12 +118,14 @@ export class ZenFileSystem implements VirtualFileSystem {
     }
 
     async writeText(path: string, content: string): Promise<void> {
+        this.assertWritable("write");
         const target = this.resolve(path);
         await this.mkdir(dirnamePath(target));
         await zenFs.promises.writeFile(target, content, "utf8");
     }
 
     async writeBytes(path: string, bytes: Uint8Array): Promise<void> {
+        this.assertWritable("write");
         const target = this.resolve(path);
         await this.mkdir(dirnamePath(target));
         await zenFs.promises.writeFile(target, bytes);
@@ -155,10 +172,12 @@ export class ZenFileSystem implements VirtualFileSystem {
     }
 
     async mkdir(path: string): Promise<void> {
+        this.assertWritable("create a directory");
         await zenFs.promises.mkdir(this.resolve(path), { recursive: true });
     }
 
     async remove(path: string, opts?: { recursive?: boolean }): Promise<void> {
+        this.assertWritable("remove");
         await zenFs.promises.rm(this.resolve(path), {
             recursive: opts?.recursive ?? false,
             force: true,

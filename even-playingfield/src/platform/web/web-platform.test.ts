@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { createMemoryStorage } from "./web-state.ts";
-import { createWebPlatform } from "./web-platform.ts";
+import { createWebPlatform, storageEstimate } from "./web-platform.ts";
 
 async function createTestPlatform() {
     return await createWebPlatform({
@@ -97,11 +97,16 @@ describe("createWebPlatform", () => {
         // memory; the point is that the second tab is kept off the shared store.
         const storage = createMemoryStorage();
         stubLocks(false);
-        const web = await createWebPlatform({ storage, root: "/lock-test" });
+        const web = await createWebPlatform({ persist: false, storage, root: "/lock-test" });
 
         expect(web.soleOwner).toBe(false);
         expect(web.persistent).toBe(false);
+        expect(web.readOnly).toBe(true);
+        expect(web.writeBlockedBy).toBe("another-tab");
         expect(web.logs.getEntries().some((entry) => entry.message.includes("Another EPF tab"))).toBe(true);
+
+        await expect(web.fs.writeText("workspaces/ws/a.txt", "nope")).rejects.toThrow(/read-only/);
+        await expect(web.fs.remove("/lock-test/workspaces/ws")).rejects.toThrow(/read-only/);
 
         web.state.saveNow();
         web.env.set("EPF_DOWNLOAD_GITHUB_PAT", "session-only", { persist: true });
@@ -130,6 +135,7 @@ describe("createWebPlatform", () => {
         });
 
         expect(viewer.readOnly).toBe(true);
+        expect(viewer.writeBlockedBy).toBe("viewer");
         expect(viewer.state.get().activeWorkspace).toBe("/ro-test/workspaces/ws-a");
         viewer.state.update((state) => {
             state.activeWorkspace = "/ro-test/workspaces/hacked";
@@ -141,5 +147,40 @@ describe("createWebPlatform", () => {
         expect(storage.getItem("epf.env")).toBeNull();
         // The value is still usable for this tab, matching the session-only default.
         expect(viewer.env.get("EPF_DOWNLOAD_GITHUB_PAT")).toBe("session-secret");
+    });
+});
+
+describe("storageEstimate", () => {
+    function stubStorage(estimate: unknown): void {
+        Object.defineProperty(globalThis, "navigator", {
+            value: { storage: { estimate: async () => estimate } },
+            configurable: true,
+            writable: true,
+        });
+    }
+
+    test("reports the browser figure with its per-store breakdown", async () => {
+        stubStorage({
+            usage: 2048,
+            quota: 4096,
+            usageDetails: { indexedDB: 1536, caches: 0, serviceWorkerRegistrations: 512 },
+        });
+
+        // Zero-usage stores are omitted by the browser; they are dropped here too.
+        expect(await storageEstimate()).toEqual({
+            usage: 2048,
+            quota: 4096,
+            details: { indexedDB: 1536, serviceWorkerRegistrations: 512 },
+        });
+    });
+
+    test("reports no breakdown when the browser omits usageDetails", async () => {
+        stubStorage({ usage: 100, quota: 1000 });
+        expect(await storageEstimate()).toEqual({ usage: 100, quota: 1000, details: null });
+    });
+
+    test("returns null when the browser has no storage manager", async () => {
+        Object.defineProperty(globalThis, "navigator", { value: {}, configurable: true, writable: true });
+        expect(await storageEstimate()).toBeNull();
     });
 });

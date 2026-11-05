@@ -95,7 +95,7 @@ What differs from the CLI:
 | Testing workflows | Unavailable — they need a shell. They fail fast with a clear message; run them with the CLI |
 | Outputs | Each finished run's filenames are recorded per workspace, so `clear`/`rerun` (and the dashboard's "Clear outputs") delete exactly those files and nothing else. `clearWorkspace(path)` is the explicit delete-everything action |
 | Chat sessions | Each analysis run is stored under `/epf/home/sessions`; the Outputs → Chats tab streams follow-ups and keeps reasoning for replay. Chat needs write access (the results viewer is read-only) |
-| Multiple tabs | The first tab takes a Web Locks lock for writing; other tabs run read-only (the results viewer reads the persisted store) or memory-only |
+| Multiple tabs | The first tab takes a Web Locks lock for writing; every other tab mounts the same IndexedDB store read-only, so saved files stay visible and writes are refused (the EPF page offers "Take over storage" once the owning tab closes) |
 | Provider calls | Direct from the browser, so the provider endpoint must allow CORS. Anthropic additionally refuses cross-origin requests unless the provider sets `headers = { "anthropic-dangerous-direct-browser-access" = "true" }`; any `[llm.providers.*] headers` are passed through to the SDK |
 
 API keys live in the config you load. Saving a config *into* a workspace or the library writes the TOML — including its

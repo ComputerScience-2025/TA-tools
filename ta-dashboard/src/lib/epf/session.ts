@@ -14,17 +14,23 @@ import { writable } from "svelte/store";
 import { fileTypeFor } from "$lib/results/file-sources";
 
 import { COMMAND_NAMES } from "$epf/command-handler.ts";
+import { isStorageLockFree } from "$epf/platform/web/storage-lock.ts";
 import { ENV_VARS } from "$epf/util/env-vars.ts";
 import { errorMessage } from "$epf/util/errors.ts";
 
 import type {
 	WebEPF,
+	BrowserStorageEstimate,
 	FetchSourceRequest,
 	FetchSourceSummary,
 	HomeConfigFile,
 	OpenedConfigDocument,
+	RemoteConfigStatus,
+	S3ConnectionTestResult,
 	SaveConfigOptions,
+	SaveConfigToS3Options,
 	SaveHomeConfigOptions,
+	SavedS3Config,
 	StorageUsage,
 	UploadedFile,
 	WorkspaceFile
@@ -33,7 +39,9 @@ import type { CommandResult } from "$epf/command-handler.ts";
 import type { Engine, WorkflowRunResult } from "$epf/engine/engine.ts";
 import type { LogEntry } from "$epf/platform/types.ts";
 import type { StorageSettings, WorkspaceOrigin, WorkspaceState } from "$epf/platform/web/web-state.ts";
+import type { WriteBlockReason } from "$epf/platform/web/web-platform.ts";
 import type { ConfigSource, ConfigValidation } from "$epf/util/config-loader.ts";
+import type { S3SettingsResult } from "$epf/util/s3.ts";
 import { userMessage } from "$epf/util/chat-session.ts";
 import { cloneSession, lastUserIndex, truncateSession } from "$epf/util/chat-service.ts";
 import type { ChatSession, ChatSessionSummary } from "$epf/util/chat-session.ts";
@@ -64,6 +72,10 @@ class EpfSession {
 	readonly error = writable<string | null>(null);
 	readonly persistent = writable(true);
 	readonly soleOwner = writable(true);
+	/** Why this tab cannot write to browser storage, or null when it owns it. */
+	readonly writeBlocked = writable<WriteBlockReason | null>(null);
+	/** True when the active workspace has no directory in storage (evicted or not yet visible). */
+	readonly workspaceMissing = writable(false);
 	readonly logs = writable<LogEntry[]>([]);
 	readonly status = writable<{ inFlight: string[]; completedFiles: string[] }>({
 		inFlight: [],
@@ -74,12 +86,20 @@ class EpfSession {
 	readonly configLoaded = writable(false);
 	readonly configSource = writable<ConfigSource | null>(null);
 	readonly attemptedConfigSource = writable<ConfigSource | null>(null);
+	readonly remoteConfig = writable<RemoteConfigStatus | null>(null);
 	readonly configText = writable("");
 	readonly configIssues = writable<string[]>([]);
 	readonly homeConfigs = writable<HomeConfigFile[]>([]);
 	readonly defaultHomeConfig = writable<string | null>(null);
 	readonly files = writable<WorkspaceFile[]>([]);
 	readonly usage = writable<StorageUsage | null>(null);
+	/**
+	 * The browser's own storage figure for the whole site. Deliberately not
+	 * refreshed by routine actions: it is approximate and on disk, so it moves
+	 * for reasons EPF does not control. `refreshBrowserEstimate()` is called at
+	 * session start and on demand from the Storage panel.
+	 */
+	readonly browserEstimate = writable<BrowserStorageEstimate | null>(null);
 	readonly lastResults = writable<WorkflowRunResult[]>([]);
 	readonly envValues = writable<EnvVarValue[]>([]);
 	readonly initialized = writable(false);
@@ -114,6 +134,22 @@ class EpfSession {
 		return [...this.logBuffer];
 	}
 
+	/**
+	 * Whether taking over storage would work right now (the owning tab is gone).
+	 * Used by the "Take over storage" button, which must not offer itself while
+	 * another tab still holds the lock.
+	 */
+	async canTakeOverStorage(): Promise<boolean> {
+		if (this.epf === null || this.epf.web.writeBlockedBy === null) {
+			return false;
+		}
+		try {
+			return await isStorageLockFree();
+		} catch {
+			return false;
+		}
+	}
+
 	/** Called for each new log line. Returns an unsubscribe function. */
 	subscribeLogs(listener: (entry: LogEntry) => void): () => void {
 		this.logListeners.add(listener);
@@ -133,6 +169,16 @@ class EpfSession {
 
 		if (this.epf !== null) {
 			if (!(wantWrite && this.access === "read-only")) {
+				return this.epf;
+			}
+			// Upgrading to write access replaces the session. It must not happen
+			// while another tab owns storage: the replacement would be read-only
+			// too, so the only thing the swap achieves is losing the mount that
+			// currently shows the user's files.
+			if (this.epf.web.writeBlockedBy !== null && !await isStorageLockFree()) {
+				// The actionable reason on the EPF page is the other tab, even when
+				// this session started as a read-only viewer.
+				this.writeBlocked.set("another-tab");
 				return this.epf;
 			}
 			// The EPF page needs write access even if a viewer opened the session first.
@@ -167,13 +213,17 @@ class EpfSession {
 			const module = await import("$epf/hosts/web-host.ts");
 			const epf = await module.WebEPF.create({ access: writeAccess ? "read-write" : "read-only" });
 			this.epf = epf;
-			this.access = writeAccess ? "read-write" : "read-only";
+			// The platform decides: a write-intent tab that could not take the
+			// storage lock comes back read-only (but still able to read the store).
+			this.access = epf.web.readOnly ? "read-only" : "read-write";
 			this.attach(epf);
 			this.persistent.set(epf.web.persistent);
 			this.soleOwner.set(epf.web.soleOwner);
-			// The platform logs why storage is memory-only (unavailable, or another
-			// tab owns it); no need to repeat it here.
+			this.writeBlocked.set(epf.web.writeBlockedBy);
+			// The platform logs why storage is read-only (viewer, another tab) or
+			// memory-only (unavailable); no need to repeat it here.
 			await this.refreshAll();
+			await this.refreshBrowserEstimate();
 			this.error.set(null);
 			return epf;
 		} catch (err) {
@@ -184,6 +234,29 @@ class EpfSession {
 			this.endBusy();
 			this.initialized.set(true);
 		}
+	}
+
+	/**
+	 * Replace a read-only session with a writable one, now that the tab that
+	 * owned browser storage is gone. Safe to call while still blocked: it
+	 * reports the reason instead of swapping the session for an empty one.
+	 */
+	async takeOverStorage(): Promise<void> {
+		if (this.creating !== null) {
+			return;
+		}
+		const current = this.epf;
+		if (current !== null && current.web.writeBlockedBy === null) {
+			return;
+		}
+		if (!await isStorageLockFree()) {
+			throw new Error("Another tab is still using browser storage. Close it, then try again.");
+		}
+		this.writeBlocked.set(null);
+		this.detach();
+		this.epf = null;
+		this.access = "read-only";
+		await this.ensure();
 	}
 
 	/** Drop listeners so a session can be replaced. */
@@ -275,12 +348,24 @@ class EpfSession {
 
 	async refreshOutputs(): Promise<void> {
 		const epf = await this.requireSession();
-		this.files.set(await epf.listFiles());
+		const workspace = epf.getActiveWorkspace();
+		// A workspace that exists in the index but not in storage has no files to
+		// show; that is not the same thing as an empty workspace, and the panel
+		// must say which one it is.
+		const exists = workspace === null ? false : await epf.workspaceExists(workspace.path);
+		this.workspaceMissing.set(workspace !== null && !exists);
+		this.files.set(exists ? await epf.listFiles() : []);
 	}
 
 	async refreshUsage(): Promise<void> {
 		const epf = await this.requireSession();
 		this.usage.set(await epf.getUsage());
+	}
+
+	/** Re-read the browser's whole-site estimate (Storage panel / manual refresh). */
+	async refreshBrowserEstimate(): Promise<void> {
+		const epf = await this.requireSession();
+		this.browserEstimate.set(await epf.getBrowserEstimate());
 	}
 
 	async refreshConfig(options: { refresh?: boolean } = {}): Promise<void> {
@@ -290,6 +375,7 @@ class EpfSession {
 		const source = epf.getConfigSource();
 		this.configSource.set(source);
 		this.attemptedConfigSource.set(epf.getAttemptedConfigSource());
+		this.remoteConfig.set(epf.getRemoteConfigStatus());
 		if (text !== null) {
 			this.configText.set(text);
 		} else if (!epf.hasConfig()) {
@@ -297,6 +383,18 @@ class EpfSession {
 		}
 		this.configIssues.set(this.configIssuesFromError(epf.getConfigError()));
 		this.refreshStatus();
+	}
+
+	/**
+	 * Re-fetch the URL config. Returns the freshness status instead of throwing:
+	 * a failed refresh keeps the last loaded config usable.
+	 */
+	async refreshRemoteConfig(): Promise<RemoteConfigStatus | null> {
+		const epf = await this.ensure();
+		const status = await epf.refreshRemoteConfig();
+		this.remoteConfig.set(status);
+		await this.refreshConfig();
+		return status;
 	}
 
 	refreshStatus(): void {
@@ -333,6 +431,15 @@ class EpfSession {
 			await epf.applyConfigText(text, label);
 		});
 		await this.refreshConfig();
+	}
+
+	/** Load a config from a source and make it the active one. */
+	async loadConfigSource(source: ConfigSource): Promise<void> {
+		const epf = await this.ensure();
+		await this.withBusy(async () => {
+			await epf.loadConfigSource(source);
+		});
+		await this.refreshAll();
 	}
 
 	/** Every TOML file in the active workspace, for the editor's picker. */
@@ -383,6 +490,29 @@ class EpfSession {
 		const source = await this.withBusy(async () => await epf.saveConfigToHome(text, name, options));
 		await this.refreshAll();
 		return source;
+	}
+
+	async saveConfigToS3(text: string, options: SaveConfigToS3Options = {}): Promise<SavedS3Config> {
+		const epf = await this.ensure();
+		const saved = await this.withBusy(async () => await epf.saveConfigToS3(text, options));
+		await this.refreshAll();
+		return saved;
+	}
+
+	getS3Settings(): S3SettingsResult {
+		if (this.epf === null) {
+			return {
+				ok: false,
+				missing: [],
+				message: "The EPF session is still starting."
+			};
+		}
+		return this.epf.getS3Settings();
+	}
+
+	async testS3Connection(objectKey?: string): Promise<S3ConnectionTestResult> {
+		const epf = await this.ensure();
+		return await epf.testS3Connection(objectKey);
 	}
 
 	async deleteHomeConfig(name: string): Promise<void> {
@@ -575,11 +705,11 @@ class EpfSession {
 	async execute(line: string): Promise<CommandResult> {
 		const epf = await this.ensure();
 		const result = await this.withBusy(async () => await epf.executeCommand(line));
-		// Only a config-carrying command can change the config text, and reading a
-		// URL source again is a network round-trip.
+		// `reload` re-reads the source inside the engine and emits the new text,
+		// so the cached copy is already fresh; no second URL fetch is needed.
 		const command = line.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 		if (CONFIG_REFRESHING_COMMANDS.has(command)) {
-			await this.refreshConfig({ refresh: true });
+			await this.refreshConfig();
 		}
 		await Promise.all([this.refreshOutputs(), this.refreshUsage(), this.refreshStatus(), this.refreshWorkspaces()]);
 		return result;
@@ -692,18 +822,32 @@ class EpfSession {
 		try {
 			this.chatSessions.set(await epf.listSessions());
 		} catch (err) {
+			// Keep whatever the panel already shows: replacing the list with an
+			// empty one makes a storage problem look like deleted history.
 			const message = errorMessage(err);
-			this.chatSessions.set([]);
 			console.error("Could not list chat sessions", message);
+			this.chatError.set(`Could not read the chat sessions from browser storage: ${message}`);
 		}
 	}
 
 	async openChatSession(id: string): Promise<ChatSession | null> {
 		const epf = this.epf ?? await this.ensure({ writeAccess: false });
-		const session = await epf.readSession(id);
+		let session: ChatSession | null;
+		try {
+			session = await epf.readSession(id);
+		} catch (err) {
+			const message = errorMessage(err);
+			this.chatError.set(`Could not open this chat session: ${message}`);
+			return null;
+		}
+		if (session === null) {
+			this.chatError.set("This chat session is no longer in browser storage.");
+		}
 		this.activeChatId = session?.id ?? null;
 		this.setActiveSession(session);
-		this.chatError.set(null);
+		if (session !== null) {
+			this.chatError.set(null);
+		}
 		return session;
 	}
 

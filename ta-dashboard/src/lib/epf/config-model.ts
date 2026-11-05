@@ -55,8 +55,12 @@ export function sourceDisplayLabel(
 			return source.path;
 		case "url":
 			return `URL · ${source.url}`;
-		case "inline":
+		case "inline": {
+			if (source.label.startsWith("imported: ") || source.label.startsWith("saved to s3://")) {
+				return source.label;
+			}
 			return "Session only";
+		}
 	}
 }
 

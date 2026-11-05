@@ -25,10 +25,12 @@
 	let fileInput: HTMLInputElement;
 	let folderInput: HTMLInputElement;
 
-	const { workspaces, activeWorkspace, files, busy, envValues, configLoaded } = epfSession;
+	const { workspaces, activeWorkspace, files, busy, envValues, configLoaded, writeBlocked, workspaceMissing } = epfSession;
 	const tokenSet = $derived(
 		$envValues.some((entry) => entry.name === GITHUB_PAT_ENV_VAR && entry.value.length > 0)
 	);
+	/** Writes are refused while another tab owns browser storage (or in a viewer). */
+	const canWrite = $derived($writeBlocked === null);
 
 	onMount(() => {
 		githubUrl = "https://github.com/";
@@ -213,7 +215,7 @@
 		{/if}
 
 		<div class="buttons">
-			<button class="button is-small is-primary" onclick={() => void fetchSource()} disabled={$busy}>
+			<button class="button is-small is-primary" onclick={() => void fetchSource()} disabled={$busy || !canWrite}>
 				Fetch into a new workspace
 			</button>
 			<label class="checkbox is-size-7 ml-2" for="auto-run">
@@ -249,8 +251,8 @@
 		>
 			<p class="is-size-7">Drop files or folders here</p>
 			<div class="buttons is-centered mt-2">
-				<button class="button is-small" onclick={() => fileInput.click()} disabled={$busy}>Choose files</button>
-				<button class="button is-small" onclick={() => folderInput.click()} disabled={$busy}>Choose folder</button>
+				<button class="button is-small" onclick={() => fileInput.click()} disabled={$busy || !canWrite}>Choose files</button>
+				<button class="button is-small" onclick={() => folderInput.click()} disabled={$busy || !canWrite}>Choose folder</button>
 			</div>
 			<input
 				bind:this={fileInput}
@@ -274,7 +276,7 @@
 	<div class="column is-6">
 		<div class="is-flex is-justify-content-space-between is-align-items-center">
 			<h3 class="subtitle is-6">Workspaces</h3>
-			<button class="button is-small" onclick={() => void createEmptyWorkspace()} disabled={$busy}>New workspace</button>
+			<button class="button is-small" onclick={() => void createEmptyWorkspace()} disabled={$busy || !canWrite}>New workspace</button>
 		</div>
 		{#if $workspaces.length === 0}
 			<p class="is-size-7 has-text-grey">No workspaces yet. Fetch a repository, upload files, or create an empty workspace.</p>
@@ -306,11 +308,11 @@
 									class="button is-small is-light"
 									title={workspace.pinned ? "Allow automatic cleanup" : "Protect from cleanup"}
 									onclick={() => togglePinned(workspace)}
-									disabled={$busy}
+									disabled={$busy || !canWrite}
 								>
 									{workspace.pinned ? "Unpin" : "Pin"}
 								</button>
-								<button class="button is-small is-light ml-1" onclick={() => void remove(workspace)} disabled={$busy}>Delete</button>
+								<button class="button is-small is-light ml-1" onclick={() => void remove(workspace)} disabled={$busy || !canWrite}>Delete</button>
 							</td>
 						</tr>
 					{/each}
@@ -326,7 +328,23 @@
 			</label>
 		</div>
 		{#if $epfShowWorkspaceFiles}
-			{#if $files.length === 0}
+			{#if $workspaceMissing}
+				<article class="message is-warning is-small">
+					<div class="message-body">
+						<p>
+							This workspace's files are not in browser storage yet. They may have been evicted
+							by the storage limit, or another tab may have created this workspace without
+							saving it yet.
+						</p>
+						{#if !canWrite}
+							<p class="help mt-1">
+								This tab is read-only; take over storage (or reload once the other tab is
+								closed) to see changes made elsewhere.
+							</p>
+						{/if}
+					</div>
+				</article>
+			{:else if $files.length === 0}
 				<p class="is-size-7 has-text-grey">No files.</p>
 			{:else}
 				<div class="file-tree">

@@ -39,6 +39,7 @@ export type EngineEvent =
     | { type: "run-started"; slug: string; runNumber: number }
     | { type: "run-finished"; result: WorkflowRunResult }
     | { type: "session-changed"; id: string }
+    | { type: "config-reloaded"; source: ConfigSource; contents: string }
     | { type: "files-changed" };
 
 export type EngineListener = (event: EngineEvent) => void;
@@ -246,8 +247,20 @@ export class Engine {
      */
     async reloadConfig(): Promise<void> {
         const resolved = await loadConfig(this.platform, this.configSource);
-        this.config = resolved.config;
-        this.configSource = resolved.source;
+        this.applyConfig(resolved.config, resolved.source);
+        this.emit({ type: "config-reloaded", source: resolved.source, contents: resolved.contents });
+    }
+
+    /**
+     * Replace the active config without replacing the Engine. Used by hosts
+     * that pick up a remote change mid-session: results, in-flight bookkeeping
+     * and event listeners must survive the refresh.
+     */
+    applyConfig(config: Config, source?: ConfigSource): void {
+        this.config = config;
+        if (source !== undefined) {
+            this.configSource = source;
+        }
         // Rebuild the LlmClient so its provider cache resets to the new keys.
         this.llmClient = new LlmClient(this.config.llm);
         this.deps = this.buildDependencies();

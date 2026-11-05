@@ -5,9 +5,11 @@
 	import { epfSession } from "$lib/epf/session";
 
 	import { buildTranscript } from "$epf/util/chat-session.ts";
+	import { errorMessage } from "$epf/util/errors.ts";
 	import type { TranscriptEntry } from "$epf/util/chat-session.ts";
 
-	const { chatSessions, activeChatSession, chatStreaming, chatBusy, chatError, lastResults } = epfSession;
+	const { chatSessions, activeChatSession, chatStreaming, chatBusy, chatError, lastResults, writeBlocked } = epfSession;
+	const canWrite = $derived($writeBlocked === null);
 
 	let draft = $state("");
 	let editingIndex = $state<number | null>(null);
@@ -71,7 +73,9 @@
 			return;
 		}
 		autoOpened = newest.id;
-		void epfSession.openChatSession(newest.id);
+		void epfSession.openChatSession(newest.id).catch((err) => {
+			epfSession.chatError.set(errorMessage(err));
+		});
 	});
 
 	const formatTime = (iso: string): string => {
@@ -81,7 +85,11 @@
 
 	const open = async (id: string): Promise<void> => {
 		editingIndex = null;
-		await epfSession.openChatSession(id);
+		try {
+			await epfSession.openChatSession(id);
+		} catch (err) {
+			epfSession.chatError.set(errorMessage(err));
+		}
 	};
 
 	const send = async (): Promise<void> => {
@@ -168,6 +176,11 @@
 
 	<div class="column">
 		{#if session === null}
+			{#if $chatError !== null}
+				<article class="message is-danger is-small">
+					<div class="message-body">{$chatError}</div>
+				</article>
+			{/if}
 			<article class="message is-info">
 				<div class="message-body">
 					Select a session to continue the conversation. The model is locked to the one the
@@ -189,7 +202,7 @@
 				<button
 					class="button is-small is-danger is-outlined"
 					onclick={() => void remove(session.id)}
-					disabled={$chatBusy}
+					disabled={$chatBusy || !canWrite}
 				>
 					Delete session
 				</button>
@@ -235,7 +248,7 @@
 						{:else if editingIndex === entry.index}
 							<textarea class="textarea is-small" rows="5" bind:value={editingText}></textarea>
 							<div class="buttons mt-2 mb-0">
-								<button class="button is-small is-primary" onclick={() => void saveEdit()} disabled={$chatBusy}>
+								<button class="button is-small is-primary" onclick={() => void saveEdit()} disabled={$chatBusy || !canWrite}>
 									Save &amp; regenerate
 								</button>
 								<button class="button is-small" onclick={() => (editingIndex = null)}>Cancel</button>
@@ -245,7 +258,7 @@
 							<button
 								class="button is-small is-light mt-2"
 								onclick={() => startEdit(entry)}
-								disabled={$chatBusy}
+								disabled={$chatBusy || !canWrite}
 							>
 								Edit
 							</button>
@@ -286,7 +299,7 @@
 					rows="3"
 					bind:value={draft}
 					placeholder="Ask about this run… (Enter to send, Shift+Enter for a new line)"
-					disabled={$chatBusy}
+					disabled={$chatBusy || !canWrite}
 					onkeydown={onKeydown}
 				></textarea>
 			</div>
@@ -294,7 +307,7 @@
 				<button
 					class="button is-primary is-small"
 					onclick={() => void send()}
-					disabled={$chatBusy || draft.trim().length === 0}
+					disabled={$chatBusy || !canWrite || draft.trim().length === 0}
 				>
 					Send
 				</button>
@@ -306,7 +319,7 @@
 				<button
 					class="button is-light is-small"
 					onclick={() => void regenerate()}
-					disabled={$chatBusy || transcript.length === 0}
+					disabled={$chatBusy || !canWrite || transcript.length === 0}
 				>
 					Regenerate last
 				</button>

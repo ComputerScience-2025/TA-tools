@@ -76,7 +76,23 @@ workspace check comes before a durable home library (`Platform.homeDir`), whose 
 `src/util/config-schema.ts`; `CURRENT_CONFIG_VERSION` and the registry in `src/util/config-migrations.ts` are shared by the
 CLI `migrate` command and the browser editor. Env-var names live in `src/util/env-vars.ts` (the web UI renders that registry).
 
-Key dependencies: `ai` (Vercel AI SDK core), `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `chalk`, `smol-toml`, `zod-defaults`.
+Remote URL configs are treated as live. `loadRawConfig` leaves caching to the browser/CDN (normal HTTP cache semantics), and
+`WebEPF.runWorkflows()` re-fetches before each run. A failed refresh keeps the last loaded config and surfaces
+`RemoteConfigStatus` (last fetch, last change, error) to the Config panel; opening the Config tab also refreshes. The engine's
+`applyConfig()` updates a same-source config without replacing the `Engine` (results and listeners survive), and `reload` emits
+`config-reloaded` so the host's text cache stays in step.
+
+S3-compatible upload is a single-file save, not a workspace export. `Save as → S3 bucket` uses `@aws-sdk/client-s3` (lazy-loaded,
+with `@smithy/fetch-http-handler` so Bun and browsers share the same fetch path). Addressing style is explicit and required, never
+inferred: `EPF_S3_ADDRESSING_STYLE=path` (`endpoint/bucket/key`) or `virtual` (`bucket.endpoint/key`). Use `virtual` for B2 and
+AWS, `path` for R2/MinIO. Settings are the eight `EPF_S3_*` variables in `env-vars.ts` (endpoint, region, bucket, optional key
+prefix, access key ID, secret, addressing style, optional public base URL); there is no session-token variable. The key prefix is
+joined to every saved object key and to the connection test, so it can match a B2 application key's file-name prefix. Overwrites
+are ETag-guarded (`If-Match`, or `If-None-Match: *` for create), and the bucket must allow CORS for `PUT`/`HEAD`, the SDK's
+headers, and expose `ETag`. `testS3Connection(key)` probes the object key being saved (not a fixed sentinel) so prefix restrictions
+are respected.
+
+Key dependencies: `ai` (Vercel AI SDK core), `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `@aws-sdk/client-s3`, `@smithy/fetch-http-handler`, `chalk`, `smol-toml`, `zod-defaults`.
 
 LLM providers are configured under `[llm.providers.*]`. Each provider must declare `sdk`, `endpoint`, and `api_key`; the `api_key` is intentionally required and the SDK's env-var fallback is explicitly blocked.
 
@@ -102,8 +118,12 @@ Browser EPF integration:
 - `src/lib/epf/session.ts` is the module-level singleton owning the `WebEPF` instance and exposing it as Svelte stores.
   `ensure()` creates a read-write session; `ensure({ writeAccess: false })` (the results viewer) reads the persisted store
   from another tab without taking the write lock. Internal refreshes use `requireSession()`—never `ensure()`—or they deadlock.
-- A read-write session owns the storage lock and persists; a second tab (and every read-only session) mounts memory-only or
-  read-only and never writes the `localStorage` state blob. `WebStateStore`/`WebEnvProvider` take `{ persist: false }` for that.
+- A read-write session owns the storage lock and persists; every other tab (a second EPF tab, the results viewer) mounts the
+  same IndexedDB store **read-only** — never memory-only — so the saved files stay visible. Writes are refused with
+  `writeBlockedBy` (`"viewer"` | `"another-tab"`), the EPF page shows a banner with "Take over storage" once the owning tab
+  closes, and only the owner writes the `localStorage` state blob (`WebStateStore`/`WebEnvProvider` take `{ persist: false }`).
+  `ensure()` must never swap a read-only session for a new one while another tab holds the lock
+  (`isStorageLockFree()` in `platform/web/storage-lock.ts`).
 - `src/lib/components/FileBrowser.svelte` + `src/lib/results/file-sources.ts` serve all three result sources: live API (`#api=`),
   URL hash (`#name=&comp=&data=`), and the browser workspace (`#source=workspace`, which lists the recorded outputs). Rendered
   markdown is sanitized with `dompurify` before `{@html}`, because a fetched repository's files are untrusted input.
@@ -170,9 +190,12 @@ Note: since it is a git submodule, need to check for uncommitted changes separat
 | `fake-indexeddb` | `even-playingfield` (dev) | MIT | Tests the IndexedDB backend without a browser |
 | `@xterm/xterm`, `@xterm/addon-fit`, `xterm-readline` | `ta-dashboard` | MIT | The `/apps/epf` pseudo-shell console |
 | `dompurify` | `ta-dashboard` | **MPL-2.0 OR Apache-2.0** | Sanitizes rendered markdown (results can come from an untrusted repository) |
+| `@aws-sdk/client-s3` | `even-playingfield` (runtime), `ta-dashboard` | Apache-2.0 | S3-compatible config uploads; lazy-loaded only when saving |
+| `@smithy/fetch-http-handler` | `even-playingfield` (runtime), `ta-dashboard` | Apache-2.0 | Makes the S3 SDK use `fetch` in Bun and the browser (and lets tests stub it) |
 
 The bundled web graph is ~90 KB gzip for storage + glob and ~155 KB gzip with the terminal; it is loaded only on `/apps/epf`
-through dynamic imports. Note the LGPL dependency if the dashboard is ever served publicly (source-availability applies).
+through dynamic imports. The S3 SDK is a separate lazy chunk fetched only when "Save as → S3 bucket" is used. Note the LGPL
+dependency if the dashboard is ever served publicly (source-availability applies).
 
 ---
 

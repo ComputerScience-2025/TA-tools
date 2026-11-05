@@ -36,12 +36,18 @@ export type ResolvedConfig = {
     config: Config;
     /** Kept so `reload` can re-read from the same place. */
     source: ConfigSource;
+    /** Exact text that was validated. Cached so the editor does not refetch. */
+    contents: string;
+    /** Response ETag for URL sources, when the host exposes it. */
+    etag?: string;
 };
 
 export type RawConfig = {
     obj: Record<string, unknown>;
     contents: string;
     source: ConfigSource;
+    /** Response ETag for URL sources, when the host exposes it. */
+    etag?: string;
 };
 
 export function configSourceLabel(source: ConfigSource): string {
@@ -57,6 +63,45 @@ export function configSourceLabel(source: ConfigSource): string {
 
 function isHttpUrl(value: string): boolean {
     return /^https?:\/\//.test(value);
+}
+
+const CONFIG_FETCH_TIMEOUT_MS = 15_000;
+
+async function fetchConfigText(url: string): Promise<{ contents: string; etag?: string }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONFIG_FETCH_TIMEOUT_MS);
+    try {
+        let response: Response;
+        try {
+            // Use the normal HTTP cache: the browser and a CDN handle
+            // Cache-Control / ETag revalidation better than a cache buster.
+            response = await fetch(url, {
+                redirect: "follow",
+                signal: controller.signal,
+                headers: { Accept: "application/toml, text/plain, */*" },
+            });
+        } catch (error) {
+            if (controller.signal.aborted) {
+                throw new Error(
+                    `Timed out after ${CONFIG_FETCH_TIMEOUT_MS / 1000}s fetching the config from URL: ${url}`,
+                );
+            }
+            throw new Error(
+                `Failed to fetch the config from URL: ${url}. The host must allow cross-origin requests ` +
+                `(CORS) from this page. (${errorMessage(error)})`,
+            );
+        }
+        if (!response.ok) {
+            throw new Error(
+                `Failed to fetch the config from URL: ${url}, status: ${response.status} ${response.statusText}`.trim(),
+            );
+        }
+        const contents = await response.text();
+        const etag = response.headers.get("etag") ?? undefined;
+        return { contents, etag };
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 /** Normalize a string (`--config` value, env var) into a {@link ConfigSource}. */
@@ -213,15 +258,14 @@ export async function resolveConfigSource(
 /** Read a config source and parse it as TOML. No validation happens here. */
 export async function loadRawConfig(platform: Platform, source: ConfigSource): Promise<RawConfig> {
     let contents: string;
+    let etag: string | undefined;
 
     switch (source.kind) {
         case "url": {
             platform.logger.log("info", `Fetching config from URL: ${source.url}`);
-            const response = await fetch(source.url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch config from URL: ${source.url}, status: ${response.status}`);
-            }
-            contents = await response.text();
+            const fetched = await fetchConfigText(source.url);
+            contents = fetched.contents;
+            etag = fetched.etag;
             break;
         }
         case "inline":
@@ -241,7 +285,7 @@ export async function loadRawConfig(platform: Platform, source: ConfigSource): P
         throw new Error(`Config is empty: ${configSourceLabel(source)}`);
     }
 
-    return { obj: platform.toml.parse(contents), contents, source };
+    return { obj: platform.toml.parse(contents), contents, source, etag };
 }
 
 /**
@@ -256,7 +300,7 @@ export async function loadConfig(
     platform.logger.log("info", "Loading config");
 
     const source = await resolveConfigSource(platform, override);
-    const { obj, contents } = await loadRawConfig(platform, source);
+    const { obj, contents, etag } = await loadRawConfig(platform, source);
 
     const validation = validateConfigObject(obj, configSourceLabel(source));
     if (!validation.ok) {
@@ -268,5 +312,5 @@ export async function loadConfig(
     }
 
     platform.logger.log("info", `Config loaded from ${configSourceLabel(source)}`);
-    return { config: validation.config, source };
+    return { config: validation.config, source, contents, etag };
 }

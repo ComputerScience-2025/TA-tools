@@ -10,10 +10,11 @@
 
 	import type { ResultFileSource } from "$lib/results/file-sources";
 
-	const { activeWorkspace, files, busy, chatSessions } = epfSession;
+	const { activeWorkspace, files, busy, chatSessions, writeBlocked, workspaceMissing } = epfSession;
 	let source = $state<ResultFileSource | null>(null);
 	let message = $state("");
 	let view = $state<"files" | "chats">("files");
+	const canWrite = $derived($writeBlocked === null);
 
 	onMount(() => {
 		void (async () => {
@@ -52,10 +53,27 @@
 	{#if view === "files"}
 		<div class="buttons mb-0">
 			<a class="button is-small is-light" href="/tools/results-viewer#source=workspace">Open in Results Viewer</a>
-			<button class="button is-small is-light" onclick={() => void clearOutputs()} disabled={$busy}>Clear outputs</button>
+			<button class="button is-small is-light" onclick={() => void clearOutputs()} disabled={$busy || !canWrite}>Clear outputs</button>
 		</div>
 	{/if}
 </div>
+
+{#if $workspaceMissing}
+	<article class="message is-warning is-small">
+		<div class="message-body">
+			<p>
+				This workspace's directory is not in browser storage, so there are no files to show.
+				It may have been evicted by the storage limit, or created by another tab that has not
+				saved it yet.
+			</p>
+			{#if !canWrite}
+				<p class="help mt-1">
+					This tab is read-only; take over storage (or reload once the other tab is closed).
+				</p>
+			{/if}
+		</div>
+	</article>
+{/if}
 
 <div class="buttons has-addons mb-4">
 	<button

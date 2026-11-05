@@ -30,11 +30,12 @@
       "command": [
         "bunx",
         "-y",
-        "chrome-devtools-mcp@latest"
+        "chrome-devtools-mcp@latest",
+        "--autoConnect"
       ]
     }
   },
   "plugin": [
-		"@sveltejs/opencode@0.1.9"
+		"@sveltejs/opencode@0.1.17"
 	]
 }

@@ -5,6 +5,7 @@
 	import { CURRENT_CONFIG_VERSION } from "$epf/util/config-schema.ts";
 	import { ENV_VARS } from "$epf/util/env-vars.ts";
 	import { errorMessage } from "$epf/util/errors.ts";
+	import { formatBytes } from "$epf/util/format.ts";
 	import { isWithinPath } from "$epf/platform/path.ts";
 
 	import ConfigLibrary from "$lib/components/epf/config/ConfigLibrary.svelte";
@@ -25,6 +26,16 @@
 
 	type Section = "editor" | "library" | "environment" | "storage";
 
+	/** Friendly names for `navigator.storage.estimate().usageDetails` keys. */
+	const USAGE_DETAIL_LABELS: Record<string, string> = {
+		indexedDB: "IndexedDB",
+		caches: "Cache storage",
+		serviceWorkerRegistrations: "Service workers",
+		fileSystem: "File system"
+	};
+
+	const usageDetailLabel = (name: string): string => USAGE_DETAIL_LABELS[name] ?? name;
+
 	let section = $state<Section>("editor");
 	let message = $state("");
 	let actionIssues = $state<string[]>([]);
@@ -32,10 +43,14 @@
 	let loading = $state(false);
 	let showSaveAs = $state(false);
 	let saveName = $state("epf.toml");
-	let saveTarget = $state<"workspace" | "home">("workspace");
+	let saveTarget = $state<"workspace" | "home" | "s3">("workspace");
 	let saveOverwrite = $state(false);
+	let saveForce = $state(false);
 	let saveMakeDefault = $state(false);
 	let saveError = $state("");
+	let s3TestMessage = $state("");
+	let s3TestError = $state(false);
+	let s3Testing = $state(false);
 	let showRename = $state(false);
 	let renameName = $state("");
 	let renameError = $state("");
@@ -44,9 +59,22 @@
 	let storageMaxMb = $state(0);
 	let storageFileMb = $state(0);
 	let storageTtlDays = $state(0);
+	let estimating = $state(false);
+	let estimateError = $state("");
 	let lastDraftCheckKey = "";
 
-	const { busy, configLoaded, configIssues, envValues, configText, activeWorkspace, configSource, attemptedConfigSource, homeConfigs } = epfSession;
+	const { busy, configLoaded, configIssues, envValues, configText, activeWorkspace, configSource, attemptedConfigSource, homeConfigs, writeBlocked, browserEstimate, persistent, usage, remoteConfig } = epfSession;
+	const canWrite = $derived($writeBlocked === null);
+	const s3Settings = $derived.by(() => {
+		void $envValues;
+		return epfSession.getS3Settings();
+	});
+	const browserDetails = $derived(
+		Object.entries($browserEstimate?.details ?? {}).map(([name, bytes]) => ({
+			name: usageDetailLabel(name),
+			bytes
+		}))
+	);
 
 	const sourceLabel = $derived(
 		sourceDisplayLabel(configEditor.source, epfSession.getHomeDir(), $activeWorkspace?.path ?? null)
@@ -91,11 +119,65 @@
 		actionIssues = text.split("\n");
 	};
 
+	const refreshRemote = async (): Promise<void> => {
+		resetFeedback();
+		try {
+			const status = await epfSession.refreshRemoteConfig();
+			if (status === null) {
+				message = "The current config is not loaded from a URL.";
+			} else if (status.error !== null) {
+				message = `Using the last loaded config. Refresh failed: ${status.error}`;
+			} else {
+				message = "Remote config refreshed.";
+			}
+		} catch (err) {
+			fail(err);
+		}
+	};
+
+	const testS3 = async (): Promise<void> => {
+		s3Testing = true;
+		s3TestMessage = "";
+		s3TestError = false;
+		try {
+			const result = await epfSession.testS3Connection(saveName);
+			s3TestError = !result.ok;
+			s3TestMessage = result.ok
+				? `Connected to ${result.bucket} using ${result.addressingStyle} addressing (key: ${result.key}).`
+				: result.message;
+		} catch (err) {
+			s3TestError = true;
+			s3TestMessage = errorMessage(err);
+		} finally {
+			s3Testing = false;
+		}
+	};
+
+	const refreshEstimate = async (): Promise<void> => {
+		if (estimating) {
+			return;
+		}
+		estimating = true;
+		estimateError = "";
+		try {
+			await epfSession.refreshBrowserEstimate();
+		} catch (err) {
+			estimateError = errorMessage(err);
+		} finally {
+			estimating = false;
+		}
+	};
+
 	const switchSection = (next: Section): void => {
 		section = next;
 		if (next !== "editor") {
 			message = "";
 			actionIssues = [];
+		}
+		if (next === "storage") {
+			// The estimate is origin-wide and approximate, so it is read when the
+			// panel is opened and on demand — never after routine writes.
+			void refreshEstimate();
 		}
 	};
 
@@ -319,10 +401,17 @@
 		showSaveAs = true;
 		showRename = false;
 		saveName = sourceFileName(configEditor.source);
-		saveTarget = sourceIsHome ? "home" : "workspace";
+		if (configEditor.source?.kind === "url" && s3Settings.ok) {
+			saveTarget = "s3";
+		} else {
+			saveTarget = sourceIsHome ? "home" : "workspace";
+		}
 		saveOverwrite = false;
+		saveForce = false;
 		saveMakeDefault = false;
 		saveError = "";
+		s3TestMessage = "";
+		s3TestError = false;
 	};
 
 	const closeSaveAs = (): void => {
@@ -342,6 +431,31 @@
 		}
 		try {
 			const text = configEditor.previewText;
+			if (saveTarget === "s3") {
+				const saved = await epfSession.saveConfigToS3(text, {
+					key: saveName,
+					overwrite: saveOverwrite,
+					force: saveForce
+				});
+				const label = `saved to s3://${saved.bucket}/${saved.key}`;
+				if (saved.publicURL !== null) {
+					try {
+						await epfSession.loadConfigSource({ kind: "url", url: saved.publicURL });
+						await configEditor.commitSaved({ kind: "url", url: saved.publicURL }, text);
+						message = `Saved to s3://${saved.bucket}/${saved.key} and loaded ${saved.publicURL}.`;
+					} catch (err) {
+						await epfSession.applyConfigText(text, label);
+						await configEditor.commitSaved({ kind: "inline", text, label }, text);
+						message = `Saved to s3://${saved.bucket}/${saved.key}, but loading the public URL failed: ${errorMessage(err)}. The saved text is applied for this session.`;
+					}
+				} else {
+					await epfSession.applyConfigText(text, label);
+					await configEditor.commitSaved({ kind: "inline", text, label }, text);
+					message = `Saved to s3://${saved.bucket}/${saved.key}. Set EPF_S3_PUBLIC_BASE_URL to open it as a URL.`;
+				}
+				showSaveAs = false;
+				return;
+			}
 			const source = saveTarget === "home"
 				? await epfSession.saveConfigToHome(text, saveName, {
 					overwrite: saveOverwrite,
@@ -569,6 +683,34 @@
 	<button type="button" class={"button is-small" + (section === "storage" ? " is-primary" : "")} onclick={() => switchSection("storage")}>Storage</button>
 </div>
 
+{#if $remoteConfig !== null}
+	<article class={"message is-small " + ($remoteConfig.error === null ? "is-info" : "is-warning")}>
+		<div class="message-body">
+			<div class="is-flex is-justify-content-space-between is-align-items-center">
+				<p>
+					Remote config · last fetched {$remoteConfig.fetchedAt === null ? "never" : new Date($remoteConfig.fetchedAt).toLocaleString()}{#if $remoteConfig.changedAt !== null} · changed {new Date($remoteConfig.changedAt).toLocaleTimeString()}{/if}
+				</p>
+				<button
+					type="button"
+					class="button is-small is-light"
+					onclick={() => void refreshRemote()}
+					disabled={$busy}
+				>
+					Refresh
+				</button>
+			</div>
+			{#if $remoteConfig.error !== null}
+				<p class="help">
+					Using the last loaded config — refresh failed: {$remoteConfig.error}. Runs still use the last
+					successfully loaded config.
+				</p>
+			{:else}
+				<p class="help">Fetched fresh before each run.</p>
+			{/if}
+		</div>
+	</article>
+{/if}
+
 {#if section === "editor"}
 	{#if loadError.length > 0}
 		<article class="message is-danger is-small">
@@ -678,12 +820,12 @@
 
 		<div class="is-flex is-justify-content-space-between is-align-items-center mb-3">
 			<div class="buttons mb-0">
-				<button type="button" class="button is-small is-primary" onclick={() => void save()} disabled={$busy || !canSave || configEditor.readOnly}>
+				<button type="button" class="button is-small is-primary" onclick={() => void save()} disabled={$busy || !canWrite || !canSave || configEditor.readOnly}>
 					{configEditor.source?.kind === "path" ? "Save" : "Save as…"}
 				</button>
-				<button type="button" class="button is-small" onclick={openSaveAs} disabled={$busy || !canSave || configEditor.readOnly}>Save as…</button>
-				<button type="button" class="button is-small" onclick={() => void applySession()} disabled={$busy || !canSave || configEditor.readOnly}>Apply for this session</button>
-				<button type="button" class="button is-small" onclick={openRename} disabled={$busy || configEditor.readOnly || configEditor.source?.kind !== "path" || configEditor.dirty}>Rename</button>
+				<button type="button" class="button is-small" onclick={openSaveAs} disabled={$busy || !canWrite || !canSave || configEditor.readOnly}>Save as…</button>
+				<button type="button" class="button is-small" onclick={() => void applySession()} disabled={$busy || !canWrite || !canSave || configEditor.readOnly}>Apply for this session</button>
+				<button type="button" class="button is-small" onclick={openRename} disabled={$busy || !canWrite || configEditor.readOnly || configEditor.source?.kind !== "path" || configEditor.dirty}>Rename</button>
 				<button type="button" class="button is-small" onclick={exportToml}>Export .toml</button>
 				<button type="button" class="button is-small" onclick={() => void copyToml()}>Copy TOML</button>
 				<button type="button" class="button is-small is-light" onclick={discard} disabled={!configEditor.dirty && configEditor.pendingMigration === null}>Discard</button>
@@ -705,15 +847,16 @@
 								<select
 									id="save-target"
 									value={saveTarget}
-									onchange={(event) => (saveTarget = event.currentTarget.value as "workspace" | "home")}
+									onchange={(event) => (saveTarget = event.currentTarget.value as "workspace" | "home" | "s3")}
 								>
 									<option value="workspace">Active workspace</option>
 									<option value="home">Config library</option>
+									<option value="s3">S3 bucket</option>
 								</select>
 							</div>
 						</div>
 						<div class="control is-expanded">
-							<label class="label is-small" for="save-name">File name</label>
+							<label class="label is-small" for="save-name">{saveTarget === "s3" ? (s3Settings.ok && s3Settings.settings.prefix.length > 0 ? "Object key (under prefix)" : "Object key") : "File name"}</label>
 							<input id="save-name" class="input is-small" bind:value={saveName} />
 						</div>
 					</div>
@@ -721,6 +864,49 @@
 						<input id="save-overwrite" type="checkbox" class="mr-2" bind:checked={saveOverwrite} />
 						Overwrite if it exists
 					</label>
+					{#if saveTarget === "s3"}
+						{#if s3Settings.ok}
+							<p class="help mt-2">
+								Bucket <strong>{s3Settings.settings.bucket}</strong> at <code>{s3Settings.settings.endpoint}</code>.
+								{#if s3Settings.settings.prefix.length > 0}
+									Saved keys use the prefix <code>{s3Settings.settings.prefix}</code>.
+								{/if}
+								The config may contain API keys, so keep the bucket private unless a public config is intended.
+								The bucket must allow CORS from this page for PUT and HEAD, allow the headers the AWS
+								SDK sends (authorization, x-amz-*, amz-sdk-*, content-type and if-*), and expose the ETag response header.
+							</p>
+							<div class="buttons mt-2 mb-0">
+								<button
+									type="button"
+									class="button is-small is-light"
+									onclick={() => void testS3()}
+									disabled={s3Testing || $busy}
+								>
+									{s3Testing ? "Testing…" : "Test connection"}
+								</button>
+							</div>
+							{#if s3TestMessage.length > 0}
+								<p class="help {s3TestError ? "is-danger" : "is-success"}">{s3TestMessage}</p>
+							{/if}
+						{:else}
+							<p class="help is-danger mt-2">{s3Settings.message}</p>
+							<button type="button" class="button is-small is-text" onclick={() => switchSection("environment")}>
+								Open Environment settings
+							</button>
+						{/if}
+						{#if saveOverwrite}
+							<div class="mt-2">
+								<label class="checkbox is-size-7" for="save-force">
+									<input id="save-force" type="checkbox" class="mr-2" bind:checked={saveForce} />
+									Ignore the ETag check (force overwrite)
+								</label>
+								<p class="help is-danger">
+									This can overwrite an edit another person saved after your last read. Use it only after
+									checking the remote file.
+								</p>
+							</div>
+						{/if}
+					{/if}
 					{#if saveTarget === "home"}
 						<label class="checkbox is-size-7" for="save-default">
 							<input id="save-default" type="checkbox" class="mr-2" bind:checked={saveMakeDefault} />
@@ -731,7 +917,7 @@
 						<p class="help is-danger mt-2">{saveError}</p>
 					{/if}
 					<div class="buttons mt-2">
-						<button type="button" class="button is-small is-primary" onclick={() => void saveAs()} disabled={$busy}>Save</button>
+						<button type="button" class="button is-small is-primary" onclick={() => void saveAs()} disabled={$busy || !canWrite}>Save</button>
 						<button type="button" class="button is-small" onclick={closeSaveAs}>Cancel</button>
 					</div>
 				</div>
@@ -747,7 +933,7 @@
 						<p class="help is-danger mt-2">{renameError}</p>
 					{/if}
 					<div class="buttons mt-2">
-						<button type="button" class="button is-small is-primary" onclick={() => void rename()} disabled={$busy}>Rename</button>
+						<button type="button" class="button is-small is-primary" onclick={() => void rename()} disabled={$busy || !canWrite}>Rename</button>
 						<button type="button" class="button is-small" onclick={() => (showRename = false)}>Cancel</button>
 					</div>
 				</div>
@@ -838,7 +1024,8 @@
 			{#each ENV_VARS as spec (spec.name)}
 				<div class="field">
 					<label class="label is-small" for={`env-${spec.name}`}>{spec.name}</label>
-					<div class="field has-addons">
+					<p class="help">{spec.description}</p>
+					<div class="field has-addons mb-0">
 						<div class="control is-expanded">
 							<input
 								id={`env-${spec.name}`}
@@ -852,7 +1039,7 @@
 							<button id={`env-set-${spec.name}`} class="button is-small" onclick={() => applyEnv(spec)}>Set</button>
 						</div>
 					</div>
-					<div class="is-flex is-justify-content-space-between is-align-items-center mt-1">
+					<div class="is-flex is-justify-content-space-between is-align-items-center mt-2">
 						{#if spec.secret}
 							<label class="checkbox is-size-7" for={`persist-${spec.name}`}>
 								<input
@@ -876,7 +1063,6 @@
 							localPersist[spec.name] = false;
 						}}>Clear</button>
 					</div>
-					<p class="help">{spec.description}</p>
 				</div>
 			{/each}
 		</div>
@@ -907,7 +1093,7 @@
 					<input id="storage-ttl" class="input is-small" type="number" min="1" bind:value={storageTtlDays} />
 				</div>
 			</div>
-			<button class="button is-small" onclick={() => void applyStorageSettings()} disabled={$busy}>Apply limits</button>
+			<button class="button is-small" onclick={() => void applyStorageSettings()} disabled={$busy || !canWrite}>Apply limits</button>
 			<p class="help mt-2">
 				When the total is exceeded, the least recently used unpinned workspace is deleted first. Pinned workspaces,
 				the active one and the config library are never removed automatically.
@@ -921,10 +1107,57 @@
 			</p>
 			<div class="buttons mt-3">
 				<button type="button" class="button is-small" onclick={() => switchSection("library")}>Open library</button>
-				<button type="button" class="button is-small is-danger is-light" onclick={() => void clearDrafts()} disabled={$busy}>Clear editor drafts</button>
+				<button type="button" class="button is-small is-danger is-light" onclick={() => void clearDrafts()} disabled={$busy || !canWrite}>Clear editor drafts</button>
 			</div>
 		</div>
 	</div>
+
+	<h3 class="subtitle is-6 mt-5">Browser storage</h3>
+	{#if $usage !== null}
+		<p class="is-size-7">
+			EPF files (logical): <strong>{formatBytes($usage.used)}</strong> of {formatBytes($usage.cap)} — workspaces,
+			the config library, editor drafts and chat sessions.
+		</p>
+	{/if}
+	{#if !$persistent}
+		<p class="is-size-7 mt-2">
+			IndexedDB is unavailable in this browser context, so this session is memory-only: EPF files are not stored
+			between visits and the browser has nothing to report.
+		</p>
+	{:else if $browserEstimate === null}
+		<p class="is-size-7 mt-2 has-text-grey">This browser does not report a site-wide storage estimate.</p>
+	{:else}
+		<div class="is-flex is-justify-content-space-between is-align-items-baseline mt-2">
+			<p class="is-size-7">
+				Browser estimate (whole site, on disk): <strong>{formatBytes($browserEstimate.usage)}</strong> of about
+				{formatBytes($browserEstimate.quota)} available
+			</p>
+			<button
+				type="button"
+				class="button is-small is-light"
+				onclick={() => void refreshEstimate()}
+				disabled={estimating || $busy}
+			>
+				{estimating ? "Reading…" : "Refresh"}
+			</button>
+		</div>
+		{#if browserDetails.length > 0}
+			<ul class="is-size-7 has-text-grey">
+				{#each browserDetails as detail (detail.name)}
+					<li>{detail.name}: {formatBytes(detail.bytes)}</li>
+				{/each}
+			</ul>
+		{/if}
+		<p class="help">
+			This is not the size of EPF's files. The browser compresses stored data, so its figure can be much smaller
+			than the logical total; and it appends a copy on every write instead of overwriting in place, so saving even
+			a few bytes can add tens of kilobytes until the database is compacted. Read it as a rough idea of the room
+			the site has left, not as a measurement of the config or the workspace.
+		</p>
+	{/if}
+	{#if estimateError.length > 0}
+		<p class="help is-danger">{estimateError}</p>
+	{/if}
 {/if}
 
 {#if message.length > 0}

@@ -27,7 +27,8 @@
 	let lastWorkspace = "";
 	let fileInput: HTMLInputElement;
 
-	const { homeConfigs, defaultHomeConfig, activeWorkspace, busy } = epfSession;
+	const { homeConfigs, defaultHomeConfig, activeWorkspace, busy, writeBlocked } = epfSession;
+	const canWrite = $derived($writeBlocked === null);
 
 	const homeDir = (): string => epfSession.getHomeDir();
 
@@ -332,8 +333,8 @@
 				<p class="help">Stored in this browser at <code>{homeDir() || "/epf/home"}</code>. It survives workspace cleanup.</p>
 			</div>
 			<div class="buttons mb-0">
-				<button type="button" class="button is-small is-primary" onclick={() => void newConfig()} disabled={$busy}>New config</button>
-				<button type="button" class="button is-small" onclick={() => fileInput.click()} disabled={$busy}>Import .toml</button>
+				<button type="button" class="button is-small is-primary" onclick={() => void newConfig()} disabled={$busy || !canWrite}>New config</button>
+				<button type="button" class="button is-small" onclick={() => fileInput.click()} disabled={$busy || !canWrite}>Import .toml</button>
 			</div>
 		</div>
 		<input
@@ -402,14 +403,14 @@
 							<td>{new Date(file.mtimeMs).toLocaleString()}</td>
 							<td class="has-text-right">
 								<div class="buttons is-right mb-0">
-									<button type="button" class="button is-small" onclick={() => void setDefault(file.name)} disabled={$busy}>
+									<button type="button" class="button is-small" onclick={() => void setDefault(file.name)} disabled={$busy || !canWrite}>
 										{isDefault ? "Clear default" : "Set default"}
 									</button>
 									<button type="button" class="button is-small" onclick={() => startRename(file.name)}>Rename</button>
-									<button type="button" class="button is-small" onclick={() => void duplicate(file.name)} disabled={$busy}>Duplicate</button>
-									<button type="button" class="button is-small" onclick={() => void copyToWorkspace(file.name)} disabled={$busy}>Copy to workspace</button>
+									<button type="button" class="button is-small" onclick={() => void duplicate(file.name)} disabled={$busy || !canWrite}>Duplicate</button>
+									<button type="button" class="button is-small" onclick={() => void copyToWorkspace(file.name)} disabled={$busy || !canWrite}>Copy to workspace</button>
 									<button type="button" class="button is-small" onclick={() => void download(file.name)}>Download</button>
-									<button type="button" class="button is-small is-danger is-light" onclick={() => void remove(file.name)} disabled={$busy}>Delete</button>
+									<button type="button" class="button is-small is-danger is-light" onclick={() => void remove(file.name)} disabled={$busy || !canWrite}>Delete</button>
 								</div>
 							</td>
 						</tr>
@@ -436,7 +437,10 @@
 				<button type="button" class="button is-small" onclick={() => void openSource()} disabled={$busy}>Open</button>
 			</div>
 		</div>
-		<p class="help">Opening reads the file for editing; it does not apply it until you press Apply or Save.</p>
+		<p class="help">
+			Opening reads the file for editing; it does not apply it until you press Apply or Save. A URL is fetched
+			fresh every time it is opened, so an updated remote config is picked up here.
+		</p>
 	</div>
 
 	<div class="column is-5">

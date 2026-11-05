@@ -10,6 +10,7 @@ import { parse as parseToml } from "smol-toml";
 
 import { QuotaFileSystem } from "./quota-vfs.ts";
 import { ScopedFileSystem } from "./scoped-vfs.ts";
+import { WEB_STORAGE_LOCK, acquireSessionLock, isStorageLockFree } from "./storage-lock.ts";
 import { WebEnvProvider, WEB_ENV_KEY } from "./web-env.ts";
 import { WebLogBuffer } from "./web-logger.ts";
 import { WebStateStore, WEB_STATE_KEY, defaultStorage } from "./web-state.ts";
@@ -21,8 +22,19 @@ import type { KeyValueStorage } from "./web-state.ts";
 import type { QuotaEvent } from "./quota-vfs.ts";
 import type { Platform, ShellResult, ShellRunner, TomlCodec, VirtualFileSystem, DirEntry } from "../types.ts";
 
-/** Names the Web Locks entry that keeps two tabs off one storage area. */
-export const WEB_STORAGE_LOCK = "epf-storage";
+// Re-exported for callers that already import the platform from here.
+export { WEB_STORAGE_LOCK, isStorageLockFree };
+
+/**
+ * Why this tab may not write to browser storage. `null` means it owns the store.
+ *
+ *   - `viewer`: the results viewer opened a read-only session on purpose;
+ *   - `another-tab`: a different tab holds the storage lock.
+ *
+ * Both cases still mount IndexedDB read-only, so the files the owning tab wrote
+ * stay visible; only mutations are refused.
+ */
+export type WriteBlockReason = "viewer" | "another-tab";
 
 /**
  * Durable home directory for a workspace root. Unlike `<root>/workspaces/...`,
@@ -48,6 +60,8 @@ export type WebPlatformOptions = {
     skipSessionLock?: boolean;
     /** Workspace root inside the mount. */
     root?: string;
+    /** IndexedDB store name (tests use a unique one per case). */
+    storeName?: string;
 };
 
 export type WebPlatform = {
@@ -65,37 +79,44 @@ export type WebPlatform = {
     env: WebEnvProvider;
     logs: WebLogBuffer;
     quota: QuotaFileSystem;
-    /** False when the mount fell back to memory (private window, other tab). */
+    /** False when the mount fell back to memory (private window, blocked storage). */
     persistent: boolean;
     /** False when another tab already holds the storage lock. */
     soleOwner: boolean;
-    /** True for viewer sessions that never write to the store. */
+    /** True when writes are refused: a viewer session or another tab owns the store. */
     readOnly: boolean;
+    /** Why writes are refused, or null when this tab owns the store. */
+    writeBlockedBy: WriteBlockReason | null;
 };
 
 export async function createWebPlatform(options: WebPlatformOptions = {}): Promise<WebPlatform> {
     const logs = options.logBuffer ?? new WebLogBuffer();
     const storage = options.storage ?? defaultStorage();
-    const readOnly = options.access === "read-only";
-    const soleOwner = readOnly || options.skipSessionLock === true ? true : await acquireSessionLock();
-    // Only the tab that owns the store may write to it. A read-only viewer still
-    // mounts it, because reading what the owning tab produced is the point; a
-    // write-intent tab that lost the lock runs memory-only instead, so two tabs
-    // can never split the workspace index between them.
-    const ownsStore = soleOwner && !readOnly;
-    const persist = (options.persist ?? true) && soleOwner;
+    const viewerOnly = options.access === "read-only";
+    const soleOwner = viewerOnly || options.skipSessionLock === true ? true : await acquireSessionLock();
+    // Only the tab that owns the store may write to it. A viewer, or a tab that
+    // lost the lock, still mounts IndexedDB — read-only. Mounting an empty
+    // in-memory filesystem instead made every saved file look deleted.
+    const ownsStore = soleOwner && !viewerOnly;
+    const writeBlockedBy: WriteBlockReason | null = viewerOnly
+        ? "viewer"
+        : soleOwner
+            ? null
+            : "another-tab";
+    const readOnly = writeBlockedBy !== null;
 
     const mount = await createZenFileSystem({
-        persist,
+        persist: options.persist ?? true,
         root: options.root ?? WEB_WORKSPACE_ROOT,
+        storeName: options.storeName,
         // A read-only mount still reads the persisted store; it just never writes.
-        writeAccess: !readOnly,
+        writeAccess: ownsStore,
     });
 
-    if (!soleOwner) {
+    if (writeBlockedBy === "another-tab") {
         logs.log(
             "warn",
-            "Another EPF tab already owns browser storage; this tab runs in memory only. Close the other tab and reload to take over.",
+            "Another EPF tab owns browser storage, so this tab is read-only. Close the other tab and take over storage here (or reload) to make changes.",
         );
     } else if (mount.fallbackReason !== undefined) {
         logs.log("warn", `Browser storage could not be opened (${mount.fallbackReason}); this session runs in memory only.`);
@@ -125,7 +146,7 @@ export async function createWebPlatform(options: WebPlatformOptions = {}): Promi
 
     const homeDir = webHomeDir(mount.root);
     const quota = new QuotaFileSystem(mount.fs, quotaContext);
-    if (!readOnly) {
+    if (ownsStore) {
         await quota.mkdir(quota.root);
         await quota.mkdir(homeDir);
         await adoptOrphanWorkspaces(mount.fs, state, quota.root);
@@ -162,6 +183,7 @@ export async function createWebPlatform(options: WebPlatformOptions = {}): Promi
         persistent: mount.persistent,
         soleOwner,
         readOnly,
+        writeBlockedBy,
     };
 }
 
@@ -251,50 +273,55 @@ export async function requestPersistentStorage(): Promise<boolean> {
 }
 
 /** Browser-wide quota information, when the browser exposes it. */
-export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
+export type BrowserStorageEstimate = {
+    /** Bytes the browser attributes to this whole origin (not only EPF). */
+    usage: number;
+    /** Bytes the browser currently allows this origin. */
+    quota: number;
+    /**
+     * Chromium's per-storage-system breakdown (`indexedDB`, `caches`, …), when
+     * reported. Stores with no usage are omitted, and the sum can differ from
+     * `usage`.
+     */
+    details: Record<string, number> | null;
+};
+
+/**
+ * The browser's own storage estimate for the whole site.
+ *
+ * Deliberately not part of the quota policy: the figure is approximate,
+ * origin-wide and on disk, so it is not comparable with the logical size of the
+ * EPF tree that {@link QuotaFileSystem.usage} reports.
+ */
+export async function storageEstimate(): Promise<BrowserStorageEstimate | null> {
     try {
         const storageManager = globalThis.navigator?.storage as StorageManager | undefined;
         if (!storageManager || typeof storageManager.estimate !== "function") {
             return null;
         }
-        const estimate = await storageManager.estimate();
-        return { usage: estimate.usage ?? 0, quota: estimate.quota ?? 0 };
+        // `usageDetails` is a Chromium extension: present in Chrome/Edge/Opera,
+        // absent from `lib.dom`, so it is read defensively.
+        const estimate = await storageManager.estimate() as StorageEstimate & { usageDetails?: unknown };
+        return {
+            usage: estimate.usage ?? 0,
+            quota: estimate.quota ?? 0,
+            details: collectUsageDetails(estimate.usageDetails),
+        };
     } catch {
         return null;
     }
 }
 
-type LockManagerLike = {
-    request(
-        name: string,
-        options: { mode: "exclusive"; ifAvailable: true },
-        callback: (lock: unknown) => Promise<void>,
-    ): Promise<unknown>;
-};
-
-/**
- * Hold an exclusive lock for the lifetime of the page. Returns false when
- * another tab already owns it, in which case the caller runs memory-only so the
- * two tabs cannot corrupt one IndexedDB store.
- */
-async function acquireSessionLock(): Promise<boolean> {
-    const locks = (globalThis.navigator as unknown as { locks?: LockManagerLike } | undefined)?.locks;
-    if (!locks) {
-        return true;
+/** Keep the numeric, non-zero entries of a `usageDetails` object. */
+export function collectUsageDetails(raw: unknown): Record<string, number> | null {
+    if (typeof raw !== "object" || raw === null) {
+        return null;
     }
-    return await new Promise<boolean>((resolve) => {
-        void locks
-            .request(WEB_STORAGE_LOCK, { mode: "exclusive", ifAvailable: true }, async (lock) => {
-                if (lock === null) {
-                    resolve(false);
-                    return;
-                }
-                resolve(true);
-                // Hold until the tab goes away so later tabs see the lock taken.
-                await new Promise<void>((release) => {
-                    globalThis.addEventListener("pagehide", () => release(), { once: true });
-                });
-            })
-            .catch(() => resolve(true));
-    });
+    const details: Record<string, number> = {};
+    for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+            details[name] = value;
+        }
+    }
+    return Object.keys(details).length > 0 ? details : null;
 }

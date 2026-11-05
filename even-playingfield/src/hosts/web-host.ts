@@ -17,6 +17,7 @@ import {
     loadConfig,
     loadRawConfig,
     toConfigSource,
+    validateConfigObject,
     validateConfigText,
 } from "../util/config-loader.ts";
 import { detectConfigVersion } from "../util/config-migrations.ts";
@@ -29,26 +30,40 @@ import {
     coerceEditorDraftFile,
     createEmptyEditorDraftFile,
     editorDraftKey,
+    hashText,
     pruneEditorDrafts,
 } from "../util/editor-draft.ts";
+import {
+    headS3Object,
+    joinS3Key,
+    publicS3ObjectUrl,
+    putS3Object,
+    resolveS3Settings,
+    s3ObjectUrl,
+} from "../util/s3.ts";
 import { planGithubDownload, githubRemote, parseGithubUrl } from "../download/github.ts";
 import { runDownload } from "../download/runner.ts";
 import { SessionStore } from "../util/session-store.ts";
 import { createWebPlatform, storageEstimate } from "../platform/web/web-platform.ts";
 import { basenamePath, dirnamePath, isWithinPath, joinPath, resolvePath } from "../platform/path.ts";
-import { CONFIG_URL_ENV_VAR, GITHUB_PAT_ENV_VAR } from "../util/env-vars.ts";
+import {
+    CONFIG_URL_ENV_VAR,
+    GITHUB_PAT_ENV_VAR,
+    S3_PUBLIC_BASE_URL_ENV_VAR,
+} from "../util/env-vars.ts";
 import { errorMessage } from "../util/errors.ts";
 import type { CommandResult } from "../command-handler.ts";
-import type { Config, ConfigSource, ConfigValidation } from "../util/config-loader.ts";
+import type { Config, ConfigSource, ConfigValidation, RawConfig } from "../util/config-loader.ts";
 import type { DownloadPlan, DownloadSummary, EnvVars } from "../download/types.ts";
 import type { EngineEvent } from "../engine/engine.ts";
-import type { WebPlatform, WebPlatformOptions } from "../platform/web/web-platform.ts";
+import type { BrowserStorageEstimate, WebPlatform, WebPlatformOptions } from "../platform/web/web-platform.ts";
 import type { WorkspaceOrigin, WorkspaceState } from "../platform/web/web-state.ts";
 import type { WorkflowRunResult } from "../engine/index.ts";
 import type { ChatSession, ChatSessionSummary } from "../util/chat-session.ts";
 import type { ChatStreamHandlers } from "../util/llm.ts";
 import type { ChatClient, ChatOutcome } from "../util/chat-service.ts";
 import type { EditorDraft, EditorDraftFile } from "../util/editor-draft.ts";
+import type { S3AddressingStyle, S3Settings, S3SettingsResult } from "../util/s3.ts";
 
 const MAX_WORKSPACE_WALK_DEPTH = 32;
 const DOWNLOAD_CONCURRENCY = 5;
@@ -128,6 +143,8 @@ export type OpenedConfigDocument = {
     source: ConfigSource;
     text: string;
     raw: Record<string, unknown>;
+    /** ETag from a URL response, when the host exposes it. */
+    etag?: string;
     version: number;
 };
 
@@ -146,15 +163,59 @@ export type SaveHomeConfigOptions = SaveConfigOptions & {
     makeDefault?: boolean;
 };
 
-export type StorageUsage = {
-    /** Bytes EPF counts in its own workspaces. */
-    used: number;
-    /** Configured cap for those bytes. */
-    cap: number;
-    /** Browser-reported total usage and quota, when available. */
-    browserUsage: number | null;
-    browserQuota: number | null;
+export type SaveConfigToS3Options = {
+    /** Key relative to the configured prefix. Defaults to `epf.toml`. */
+    key?: string;
+    /** Replace an existing object. */
+    overwrite?: boolean;
+    /** Overwrite without the ETag conflict check after the user confirmed it. */
+    force?: boolean;
 };
+
+export type SavedS3Config = {
+    bucket: string;
+    key: string;
+    etag: string | null;
+    /** S3 API URL. May require credentials; use {@link publicURL} for sharing. */
+    url: string;
+    /** Public URL when `EPF_S3_PUBLIC_BASE_URL` is configured. */
+    publicURL: string | null;
+};
+
+export type S3ConnectionTestResult =
+    | {
+        ok: true;
+        bucket: string;
+        endpoint: string;
+        addressingStyle: S3AddressingStyle;
+        /** Object key that was probed. */
+        key: string;
+    }
+    | { ok: false; message: string };
+
+/** Freshness of the config loaded from a URL. */
+export type RemoteConfigStatus = {
+    source: { kind: "url"; url: string };
+    /** Last successful fetch, or null when it has never succeeded. */
+    fetchedAt: number | null;
+    /** Last fetch that changed the config text. */
+    changedAt: number | null;
+    /** Why the most recent refresh failed. */
+    error: string | null;
+};
+
+export type StorageUsage = {
+    /**
+     * Logical bytes of everything EPF keeps in browser storage: workspaces,
+     * the config library, drafts and chat sessions.
+     */
+    used: number;
+    /** Configured cap for those bytes (`maxTotalBytes`). */
+    cap: number;
+};
+
+/** Re-exported for the dashboard: the browser's whole-site storage figure. */
+export type { BrowserStorageEstimate };
 
 export class WebEPF {
     readonly web: WebPlatform;
@@ -168,6 +229,12 @@ export class WebEPF {
     private unsubscribeEngineEvents: (() => void) | null = null;
     /** Cached text of the current config source, so refreshes do not refetch URLs. */
     private configTextCache: { source: ConfigSource; text: string } | null = null;
+    /** Freshness of the current URL config. Null for file and inline sources. */
+    private remoteStatus: RemoteConfigStatus | null = null;
+    /** Hash of the last URL text that was applied, to detect remote changes. */
+    private remoteTextHash: string | null = null;
+    /** S3 ETag for a public config URL, keyed by URL, for `If-Match` writes. */
+    private readonly s3ETags: Map<string, string> = new Map();
     /** Durable chat history, outside the quota-evicted workspace tree. */
     private readonly sessionStore: SessionStore;
 
@@ -213,6 +280,11 @@ export class WebEPF {
         if (source !== null) {
             const normalized = this.normalizeSource(source);
             this.attemptedSource = normalized;
+            if (readOnly) {
+                // A read-only tab cannot build an engine, but the editor can still
+                // open (and show) this file; do not report it as a load failure.
+                return;
+            }
             try {
                 await this.loadConfigSource(normalized);
             } catch (error) {
@@ -224,9 +296,17 @@ export class WebEPF {
 
     /** Guard for actions that need write access (viewer sessions have none). */
     private assertWritable(action: string): void {
-        if (this.web.readOnly) {
-            throw new Error(`${action} needs write access; this view is read-only. Open the EPF page to make changes.`);
+        const reason = this.web.writeBlockedBy;
+        if (reason === null) {
+            return;
         }
+        if (reason === "another-tab") {
+            throw new Error(
+                `${action} needs write access, but another tab owns browser storage. ` +
+                "Close that tab and use 'Take over storage' here, or reload this tab.",
+            );
+        }
+        throw new Error(`${action} needs write access; this view is read-only. Open the EPF page to make changes.`);
     }
 
     /**
@@ -280,6 +360,23 @@ export class WebEPF {
      * sources — including after a reload.
      */
     private handleEngineEvent(event: EngineEvent): void {
+        if (event.type === "config-reloaded") {
+            // `reload` re-reads the source inside the engine. Keep the host's
+            // text cache in step so the panel does not fetch the URL twice.
+            this.configTextCache = { source: event.source, text: event.contents };
+            if (event.source.kind === "url") {
+                const nextHash = hashText(event.contents);
+                const changed = this.remoteTextHash !== null && this.remoteTextHash !== nextHash;
+                this.remoteTextHash = nextHash;
+                this.remoteStatus = {
+                    source: event.source,
+                    fetchedAt: Date.now(),
+                    changedAt: changed ? Date.now() : this.remoteStatus?.changedAt ?? null,
+                    error: null,
+                };
+            }
+            return;
+        }
         if (event.type !== "run-finished") {
             return;
         }
@@ -371,19 +468,122 @@ export class WebEPF {
         const resolvedSource = this.normalizeSource(resolved.source);
         this.configSource = resolvedSource;
         this.configError = null;
-        this.configTextCache = resolvedSource.kind === "inline"
-            ? { source: resolvedSource, text: resolvedSource.text }
-            : null;
+        this.configTextCache = { source: resolvedSource, text: resolved.contents };
+        if (resolvedSource.kind === "url") {
+            this.remoteTextHash = hashText(resolved.contents);
+            this.remoteStatus = {
+                source: resolvedSource,
+                fetchedAt: Date.now(),
+                changedAt: null,
+                error: null,
+            };
+        } else {
+            this.remoteTextHash = null;
+            this.remoteStatus = null;
+        }
         this.rememberConfigSource(resolvedSource);
         this.setEngine(new Engine(resolved.config, this.web.platform, resolvedSource, {
             sessionStore: this.sessionStore,
             chatClient: this.options.chatClient,
         }));
+        if (resolvedSource.kind === "url") {
+            await this.captureS3ETagForURL(resolvedSource.url);
+        }
         const workspace = this.getActiveWorkspace();
         if (workspace !== null) {
             this.web.state.touchWorkspace(workspace.path);
         }
         return resolved.config;
+    }
+
+    /**
+     * Re-fetch the current URL config and apply it when the remote text changed.
+     * A failed refresh keeps the last loaded config: the caller can show the
+     * returned status and decide whether to run anyway.
+     */
+    async refreshRemoteConfig(): Promise<RemoteConfigStatus | null> {
+        const source = this.configSource ?? this.attemptedSource;
+        if (source === null || source.kind !== "url") {
+            return this.remoteStatus;
+        }
+        const normalized = this.normalizeSource(source);
+        if (normalized.kind !== "url") {
+            return this.remoteStatus;
+        }
+        if (this.engine !== null && this.engine.getStatus().inFlight.length > 0) {
+            const message = "A workflow is running, so the remote config was not refreshed.";
+            this.remoteStatus = {
+                source: normalized,
+                fetchedAt: this.remoteStatus?.fetchedAt ?? null,
+                changedAt: this.remoteStatus?.changedAt ?? null,
+                error: message,
+            };
+            this.web.logs.log("debug", message);
+            return this.remoteStatus;
+        }
+
+        try {
+            const raw = await loadRawConfig(this.web.platform, normalized);
+            const validation = validateConfigObject(raw.obj, configSourceLabel(normalized));
+            if (!validation.ok) {
+                throw new Error(validation.message);
+            }
+            const nextHash = hashText(raw.contents);
+            const changed = this.remoteTextHash !== null && this.remoteTextHash !== nextHash;
+            const now = Date.now();
+            this.configTextCache = { source: normalized, text: raw.contents };
+            this.remoteTextHash = nextHash;
+            this.remoteStatus = {
+                source: normalized,
+                fetchedAt: now,
+                changedAt: changed ? now : this.remoteStatus?.changedAt ?? null,
+                error: null,
+            };
+
+            if (this.web.readOnly) {
+                return this.remoteStatus;
+            }
+            if (changed || this.engine === null) {
+                this.configSource = normalized;
+                this.attemptedSource = normalized;
+                this.configError = null;
+                this.rememberConfigSource(normalized);
+                if (this.engine === null) {
+                    this.setEngine(new Engine(validation.config, this.web.platform, normalized, {
+                        sessionStore: this.sessionStore,
+                        chatClient: this.options.chatClient,
+                    }));
+                } else {
+                    this.engine.applyConfig(validation.config, normalized);
+                }
+                if (changed) {
+                    this.web.logs.log("info", `Remote config changed; reloaded from ${normalized.url}.`);
+                }
+            }
+            if (changed) {
+                // A public URL may expose a CDN ETag, which is not necessarily
+                // the object's S3 ETag. Read the authoritative one instead.
+                await this.captureS3ETagForURL(normalized.url);
+            }
+            return this.remoteStatus;
+        } catch (error) {
+            const message = errorMessage(error);
+            this.remoteStatus = {
+                source: normalized,
+                fetchedAt: this.remoteStatus?.fetchedAt ?? null,
+                changedAt: this.remoteStatus?.changedAt ?? null,
+                error: message,
+            };
+            if (this.engine === null) {
+                this.configError = message;
+            }
+            this.web.logs.log("warn", `Could not refresh the remote config: ${message}`);
+            return this.remoteStatus;
+        }
+    }
+
+    getRemoteConfigStatus(): RemoteConfigStatus | null {
+        return this.remoteStatus;
     }
 
     /**
@@ -396,16 +596,81 @@ export class WebEPF {
         if (normalized.kind === "path") {
             const info = await this.web.platform.fs.stat(normalized.path);
             if (info === null || info.kind !== "file") {
-                throw new Error(`Config file not found: ${normalized.path}`);
+                throw new Error(this.describeMissingPath(normalized.path));
             }
         }
-        const raw = await loadRawConfig(this.web.platform, normalized);
+        let raw: RawConfig;
+        try {
+            raw = await loadRawConfig(this.web.platform, normalized);
+        } catch (error) {
+            // The file vanished between the check and the read: report what it
+            // means for the user instead of surfacing a raw ENOENT.
+            if (normalized.kind === "path" && !await this.web.platform.fs.exists(normalized.path)) {
+                throw new Error(this.describeMissingPath(normalized.path, error));
+            }
+            throw error;
+        }
+        if (normalized.kind === "url") {
+            await this.captureS3ETagForURL(normalized.url);
+        }
         return {
             source: normalized,
             text: raw.contents,
             raw: raw.obj,
+            etag: raw.etag,
             version: detectConfigVersion(raw.obj),
         };
+    }
+
+    /**
+     * Message for a path the session index knows about but the filesystem does
+     * not have. A read-only tab (another tab owns storage, or the results
+     * viewer) explains why it cannot see the owning tab's files.
+     */
+    private describeMissingPath(path: string, error?: unknown): string {
+        const detail = error === undefined ? "" : ` (${errorMessage(error)})`;
+        if (this.web.writeBlockedBy === "another-tab") {
+            return `'${path}' is not visible in this tab because another tab owns browser storage. ` +
+                `Close that tab and take over storage, or reload this tab.${detail}`;
+        }
+        return `'${path}' is not in browser storage. It may have been removed or cleaned up.${detail}`;
+    }
+
+    /**
+     * Map a public config URL back to its S3 object and remember the object's
+     * real ETag. A CDN may add its own ETag, which cannot be used in If-Match.
+     */
+    private async captureS3ETagForURL(url: string): Promise<void> {
+        const resolved = resolveS3Settings(this.web.env);
+        if (!resolved.ok) {
+            return;
+        }
+        const base = this.web.env.get(S3_PUBLIC_BASE_URL_ENV_VAR)?.trim() ?? "";
+        if (base.length === 0) {
+            return;
+        }
+        const prefix = base.replace(/\/+$/, "");
+        if (!url.startsWith(`${prefix}/`)) {
+            return;
+        }
+        const rawKey = url.slice(prefix.length + 1).split(/[?#]/)[0] ?? "";
+        if (rawKey.length === 0) {
+            return;
+        }
+        let key: string;
+        try {
+            key = normalizeConfigRelativePath(decodeURIComponent(rawKey));
+        } catch {
+            return;
+        }
+        try {
+            const info = await headS3Object(resolved.settings, key);
+            if (info.exists) {
+                this.rememberSavedETag(url, info.etag);
+            }
+        } catch (error) {
+            this.web.logs.log("debug", `Could not read the S3 ETag for ${url}: ${errorMessage(error)}`);
+        }
     }
 
     /**
@@ -438,6 +703,8 @@ export class WebEPF {
         this.attemptedSource = null;
         this.configError = null;
         this.configTextCache = null;
+        this.remoteStatus = null;
+        this.remoteTextHash = null;
         this.setEngine(null);
     }
 
@@ -471,7 +738,14 @@ export class WebEPF {
             return null;
         }
         const cached = this.configTextCache;
-        if (options?.refresh !== true && cached !== null && sameConfigSource(cached.source, source)) {
+        // Files are cheap to reread and may be replaced by an upload, so only
+        // URL and inline sources use the cache.
+        if (
+            options?.refresh !== true &&
+            source.kind !== "path" &&
+            cached !== null &&
+            sameConfigSource(cached.source, source)
+        ) {
             return cached.text;
         }
         if (source.kind === "inline") {
@@ -481,8 +755,27 @@ export class WebEPF {
         try {
             const raw = await loadRawConfig(this.web.platform, source);
             this.configTextCache = { source, text: raw.contents };
+            if (source.kind === "url") {
+                const nextHash = hashText(raw.contents);
+                const changed = this.remoteTextHash !== null && this.remoteTextHash !== nextHash;
+                this.remoteTextHash = nextHash;
+                this.remoteStatus = {
+                    source,
+                    fetchedAt: Date.now(),
+                    changedAt: changed ? Date.now() : this.remoteStatus?.changedAt ?? null,
+                    error: null,
+                };
+            }
             return raw.contents;
-        } catch {
+        } catch (error) {
+            if (source.kind === "url") {
+                this.remoteStatus = {
+                    source,
+                    fetchedAt: this.remoteStatus?.fetchedAt ?? null,
+                    changedAt: this.remoteStatus?.changedAt ?? null,
+                    error: errorMessage(error),
+                };
+            }
             return null;
         }
     }
@@ -588,7 +881,18 @@ export class WebEPF {
     }
 
     async readHomeConfig(name: string): Promise<string> {
-        return await this.web.storageFs.readText(this.resolveHomeConfigPath(name));
+        const path = this.resolveHomeConfigPath(name);
+        if (!await this.web.storageFs.exists(path)) {
+            throw new Error(this.describeMissingPath(path));
+        }
+        try {
+            return await this.web.storageFs.readText(path);
+        } catch (error) {
+            if (!await this.web.storageFs.exists(path)) {
+                throw new Error(this.describeMissingPath(path, error));
+            }
+            throw error;
+        }
     }
 
     /** Save a config into the durable library. */
@@ -664,6 +968,130 @@ export class WebEPF {
     ): Promise<ConfigSource> {
         const text = await this.readHomeConfig(name);
         return await this.saveConfigToWorkspace(text, targetName, options);
+    }
+
+    // --- S3-compatible object storage ------------------------------------------
+
+    /** Current S3 settings, or the exact variables that are still missing. */
+    getS3Settings(): S3SettingsResult {
+        return resolveS3Settings(this.web.env);
+    }
+
+    /**
+     * Check the endpoint, credentials, addressing style and CORS/preflight by
+     * reading the object key the user is about to save. Using the target key
+     * keeps a B2 application key's file-name prefix restriction satisfied.
+     * A 404 still means the request itself worked.
+     */
+    async testS3Connection(objectKey?: string): Promise<S3ConnectionTestResult> {
+        const resolved = resolveS3Settings(this.web.env);
+        if (!resolved.ok) {
+            return { ok: false, message: resolved.message };
+        }
+        try {
+            const relativeKey = normalizeConfigRelativePath(objectKey ?? DEFAULT_CONFIG_FILE_NAME);
+            const key = joinS3Key(resolved.settings.prefix, relativeKey);
+            await headS3Object(resolved.settings, key);
+            return {
+                ok: true,
+                bucket: resolved.settings.bucket,
+                endpoint: resolved.settings.endpoint,
+                addressingStyle: resolved.settings.addressingStyle,
+                key,
+            };
+        } catch (error) {
+            return { ok: false, message: errorMessage(error) };
+        }
+    }
+
+    /**
+     * Write one config file to the configured S3-compatible bucket. The config
+     * is validated before any network call, and an overwrite is guarded by the
+     * object's ETag so a concurrent edit fails instead of being clobbered.
+     */
+    async saveConfigToS3(text: string, options: SaveConfigToS3Options = {}): Promise<SavedS3Config> {
+        this.assertWritable("Saving a config to S3");
+        this.assertIdle("Saving a config to S3");
+        const resolved = resolveS3Settings(this.web.env);
+        if (!resolved.ok) {
+            throw new Error(resolved.message);
+        }
+        const settings = resolved.settings;
+        const relativeKey = normalizeConfigRelativePath(options.key ?? DEFAULT_CONFIG_FILE_NAME);
+        const key = joinS3Key(settings.prefix, relativeKey);
+        this.assertValidForSaving(text, `s3://${settings.bucket}/${key}`);
+        const publicURL = publicS3ObjectUrl(
+            settings,
+            key,
+            this.web.env.get(S3_PUBLIC_BASE_URL_ENV_VAR),
+        );
+
+        if (!options.overwrite) {
+            const saved = await putS3Object(settings, key, text, { ifNoneMatch: true });
+            this.rememberSavedETag(publicURL, saved.etag);
+            return this.s3Result(settings, key, saved.etag);
+        }
+
+        if (options.force) {
+            const saved = await putS3Object(settings, key, text);
+            this.rememberSavedETag(publicURL, saved.etag);
+            return this.s3Result(settings, key, saved.etag);
+        }
+
+        // The ETag captured when the config was read is the strongest check: it
+        // catches an edit another person saved after this user loaded the file.
+        const knownETag = publicURL === null ? null : this.s3ETags.get(normalizedURL(publicURL)) ?? null;
+        if (knownETag !== null) {
+            const saved = await putS3Object(settings, key, text, { ifMatch: knownETag });
+            this.rememberSavedETag(publicURL, saved.etag);
+            return this.s3Result(settings, key, saved.etag);
+        }
+
+        const existing = await headS3Object(settings, key);
+        if (!existing.exists) {
+            const saved = await putS3Object(settings, key, text, { ifNoneMatch: true });
+            this.rememberSavedETag(publicURL, saved.etag);
+            return this.s3Result(settings, key, saved.etag);
+        }
+        if (existing.etag === null) {
+            this.web.logs.log(
+                "warn",
+                `The S3 endpoint did not expose an ETag for '${key}'; saving without a concurrency check.`,
+            );
+        }
+        const saved = await putS3Object(settings, key, text, { ifMatch: existing.etag });
+        this.rememberSavedETag(publicURL, saved.etag);
+        return this.s3Result(settings, key, saved.etag);
+    }
+
+    /** Keep the ETag used for the next overwrite of the same public URL. */
+    private rememberSavedETag(publicURL: string | null, etag: string | null): void {
+        if (publicURL === null) {
+            return;
+        }
+        const key = normalizedURL(publicURL);
+        if (etag !== null && etag.length > 0) {
+            this.s3ETags.set(key, etag);
+        } else {
+            // The write succeeded but the new version is unknown; never reuse
+            // the previous ETag, which now describes an older object.
+            this.s3ETags.delete(key);
+        }
+    }
+
+    private s3Result(settings: S3Settings, key: string, etag: string | null): SavedS3Config {
+        const publicURL = publicS3ObjectUrl(
+            settings,
+            key,
+            this.web.env.get(S3_PUBLIC_BASE_URL_ENV_VAR),
+        );
+        return {
+            bucket: settings.bucket,
+            key,
+            etag,
+            url: s3ObjectUrl(settings, key),
+            publicURL,
+        };
     }
 
     // --- Rename ---------------------------------------------------------------
@@ -1001,6 +1429,20 @@ export class WebEPF {
         this.web.state.setPinned(path, pinned);
     }
 
+    /**
+     * Whether a workspace's directory is still present in storage. A workspace
+     * that only exists in the index (evicted, or created by another tab this
+     * read-only session cannot see yet) has no files to list, which is not the
+     * same thing as an empty workspace.
+     */
+    async workspaceExists(workspacePath?: string): Promise<boolean> {
+        const path = workspacePath ?? this.getActiveWorkspace()?.path;
+        if (path === undefined) {
+            return false;
+        }
+        return await this.web.storageFs.exists(path);
+    }
+
     /** Files in a workspace, as workspace-relative paths. */
     async listFiles(workspacePath?: string): Promise<WorkspaceFile[]> {
         const root = workspacePath ?? this.getActiveWorkspace()?.path;
@@ -1178,6 +1620,11 @@ export class WebEPF {
     /** Run workflows through the engine (requires a loaded config). */
     async runWorkflows(filters?: { only?: string[]; skip?: string[] }): Promise<WorkflowRunResult[]> {
         this.assertWritable("Running workflows");
+        if (this.configSource?.kind === "url") {
+            // The remote file is the shared source of truth. Failure is
+            // non-fatal: the status explains it and the last config still runs.
+            await this.refreshRemoteConfig();
+        }
         const engine = this.requireEngine();
         const results = await engine.runWorkflows(filters);
         this.web.state.touchWorkspace(this.requireActiveWorkspace().path);
@@ -1406,13 +1853,19 @@ export class WebEPF {
     // --- Storage ---
 
     async getUsage(): Promise<StorageUsage> {
-        const estimate = await storageEstimate();
         return {
             used: await this.web.quota.usage(),
             cap: this.web.state.getStorageSettings().maxTotalBytes,
-            browserUsage: estimate?.usage ?? null,
-            browserQuota: estimate?.quota ?? null,
         };
+    }
+
+    /**
+     * The browser's own storage estimate for the whole site, when it exposes
+     * one. Kept separate from {@link getUsage}: it is origin-wide, on disk and
+     * approximate, so it must not drive EPF's quota bar.
+     */
+    async getBrowserEstimate(): Promise<BrowserStorageEstimate | null> {
+        return await storageEstimate();
     }
 
     private requireEngine(): Engine {
@@ -1420,6 +1873,15 @@ export class WebEPF {
             throw new Error("No config loaded. Choose a config source before running workflows.");
         }
         return this.engine;
+    }
+}
+
+/** Canonical URL form, for matching a public config URL to its S3 object. */
+function normalizedURL(value: string): string {
+    try {
+        return new URL(value).toString();
+    } catch {
+        return value;
     }
 }
 
