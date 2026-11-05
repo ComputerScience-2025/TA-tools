@@ -5,6 +5,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
+	import { CONFIG_URL_ENV_VAR } from "$epf/util/env-vars.ts";
 	import { errorMessage } from "$epf/util/errors.ts";
 
 	import ConfigPanel from "$lib/components/epf/ConfigPanel.svelte";
@@ -29,6 +30,10 @@
 	let lockFree = $state(false);
 	let takeoverError = $state<string | null>(null);
 	let takingOver = $state(false);
+	/** Config URL offered by the page hash, awaiting the user's confirmation. */
+	let pendingSharedUrl = $state<string | null>(null);
+	let sharedConfigError = $state<string | null>(null);
+	let loadingSharedConfig = $state(false);
 
 	// Destructured so the `$store` syntax applies to plain identifiers.
 	const { busy, configLoaded, persistent, initialized, error, usage, consoleEpoch, writeBlocked } = epfSession;
@@ -42,6 +47,76 @@
 		configSection = "storage";
 	};
 
+	/** Config URL from the hash query, e.g. `#xyz?EPF_CONFIG_URL=https%3A%2F%2F…`. */
+	const sharedConfigUrlFromHash = (): string | null => {
+		const hash = window.location.hash.replace(/^#/, "");
+		const queryStart = hash.indexOf("?");
+		if (queryStart < 0) {
+			return null;
+		}
+		const params = new URLSearchParams(hash.slice(queryStart + 1));
+		const value = (params.get("EPF_CONFIG_URL") ?? params.get("config") ?? "").trim();
+		return /^https?:\/\//.test(value) ? value : null;
+	};
+
+	/** Remove the config params, keeping the hash route and any other params. */
+	const stripSharedConfigHash = (): void => {
+		const hash = window.location.hash.replace(/^#/, "");
+		const queryStart = hash.indexOf("?");
+		if (queryStart < 0) {
+			return;
+		}
+		const route = hash.slice(0, queryStart);
+		const params = new URLSearchParams(hash.slice(queryStart + 1));
+		if (!params.has("EPF_CONFIG_URL") && !params.has("config")) {
+			return;
+		}
+		params.delete("EPF_CONFIG_URL");
+		params.delete("config");
+		const query = params.toString();
+		const url = new URL(window.location.href);
+		url.hash = query.length > 0 ? `${route}?${query}` : route;
+		history.replaceState(null, "", url.toString());
+	};
+
+	const syncSharedConfig = (): void => {
+		if (loadingSharedConfig) {
+			return;
+		}
+		pendingSharedUrl = sharedConfigUrlFromHash();
+		sharedConfigError = null;
+	};
+
+	const loadSharedConfig = async (): Promise<void> => {
+		if (pendingSharedUrl === null || loadingSharedConfig) {
+			return;
+		}
+		const url = pendingSharedUrl;
+		loadingSharedConfig = true;
+		sharedConfigError = null;
+		try {
+			// Saving the URL in the environment variable is the explicit record of
+			// the user's choice, even when the config turns out to be invalid.
+			epfSession.setEnv(CONFIG_URL_ENV_VAR, url, true);
+			await epfSession.loadConfigSource({ kind: "url", url });
+			stripSharedConfigHash();
+			pendingSharedUrl = null;
+		} catch (err) {
+			sharedConfigError = errorMessage(err);
+		} finally {
+			loadingSharedConfig = false;
+		}
+	};
+
+	const dismissSharedConfig = (): void => {
+		if (loadingSharedConfig) {
+			return;
+		}
+		stripSharedConfigHash();
+		pendingSharedUrl = null;
+		sharedConfigError = null;
+	};
+
 	onMount(() => {
 		void (async () => {
 			try {
@@ -50,6 +125,9 @@
 				sessionError = errorMessage(err);
 			}
 		})();
+		syncSharedConfig();
+		window.addEventListener("hashchange", syncSharedConfig);
+		return () => window.removeEventListener("hashchange", syncSharedConfig);
 	});
 
 	// A URL config can change between runs, so the Config tab re-fetches it on
@@ -184,6 +262,41 @@
 		{#if $error !== null}
 			<article class="message is-danger is-small">
 				<div class="message-body">{$error}</div>
+			</article>
+		{/if}
+
+		{#if pendingSharedUrl !== null}
+			<article class="message is-info">
+				<div class="message-header"><p>Config from this link</p></div>
+				<div class="message-body">
+					<p class="mb-2">This link wants to load a config from:</p>
+					<p class="mb-2"><code style="word-break: break-all">{pendingSharedUrl}</code></p>
+					<p class="help">
+						Only load it if you trust the source. A config can contain API keys and provider
+						settings, and its workflows will use them.
+					</p>
+					{#if sharedConfigError !== null}
+						<p class="help is-danger mt-2">{sharedConfigError}</p>
+					{/if}
+					<div class="buttons mt-3">
+						<button
+							type="button"
+							class="button is-small is-primary"
+							onclick={() => void loadSharedConfig()}
+							disabled={loadingSharedConfig || $busy || !$initialized}
+						>
+							{loadingSharedConfig ? "Loading…" : "Load config"}
+						</button>
+						<button
+							type="button"
+							class="button is-small"
+							onclick={dismissSharedConfig}
+							disabled={loadingSharedConfig}
+						>
+							Dismiss
+						</button>
+					</div>
+				</div>
 			</article>
 		{/if}
 

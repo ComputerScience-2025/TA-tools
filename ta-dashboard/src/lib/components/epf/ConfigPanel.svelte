@@ -61,6 +61,8 @@
 	let renameError = $state("");
 	let localEnv = $state<Record<string, string>>({});
 	let localPersist = $state<Record<string, boolean>>({});
+	/** Last values copied from the session, to tell external changes from drafts. */
+	let appliedEnv = $state<Record<string, string>>({});
 	let storageMaxMb = $state(0);
 	let storageFileMb = $state(0);
 	let storageTtlDays = $state(0);
@@ -248,6 +250,23 @@
 		}
 		lastDraftCheckKey = key;
 		void maybeRestoreDraft();
+	});
+
+	// Environment values can change outside this panel (for example when a
+	// confirmed shared link writes EPF_CONFIG_URL). Reflect them without
+	// overwriting text the user has typed but not applied.
+	$effect(() => {
+		const entries = $envValues;
+		for (const spec of ENV_VARS) {
+			const stored = entries.find((entry) => entry.name === spec.name)?.value ?? "";
+			const local = localEnv[spec.name] ?? "";
+			if (local === (appliedEnv[spec.name] ?? "") && local !== stored) {
+				localEnv[spec.name] = stored;
+			}
+			if (appliedEnv[spec.name] !== stored) {
+				appliedEnv[spec.name] = stored;
+			}
+		}
 	});
 
 	const initializeEditor = async (): Promise<void> => {
@@ -583,6 +602,7 @@
 		}
 		localEnv = values;
 		localPersist = persisted;
+		appliedEnv = { ...values };
 	};
 
 	const syncStorageFromSession = (): void => {
