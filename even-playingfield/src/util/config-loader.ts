@@ -87,8 +87,8 @@ async function fetchConfigText(url: string): Promise<{ contents: string; etag?: 
                 );
             }
             throw new Error(
-                `Failed to fetch the config from URL: ${url}. The host must allow cross-origin requests ` +
-                `(CORS) from this page. (${errorMessage(error)})`,
+                `Failed to fetch the config from URL: ${url}. Check that the URL is reachable and that ` +
+                `CORS is properly configured for this host. (${errorMessage(error)})`,
             );
         }
         if (!response.ok) {

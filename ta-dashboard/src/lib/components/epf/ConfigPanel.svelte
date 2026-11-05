@@ -23,8 +23,14 @@
 
 	import type { EnvVarSpec } from "$epf/util/env-vars.ts";
 	import type { ConfigIssue, ConfigSource } from "$epf/util/config-loader.ts";
+	import type { ConfigSection } from "$lib/epf/config-sections.ts";
 
-	type Section = "editor" | "library" | "environment" | "storage";
+	interface Props {
+		/** Bindable so the page's usage warning can open the Storage panel. */
+		section?: ConfigSection;
+	}
+
+	let { section = $bindable("editor") }: Props = $props();
 
 	/** Friendly names for `navigator.storage.estimate().usageDetails` keys. */
 	const USAGE_DETAIL_LABELS: Record<string, string> = {
@@ -36,7 +42,6 @@
 
 	const usageDetailLabel = (name: string): string => USAGE_DETAIL_LABELS[name] ?? name;
 
-	let section = $state<Section>("editor");
 	let message = $state("");
 	let actionIssues = $state<string[]>([]);
 	let loadError = $state("");
@@ -69,6 +74,9 @@
 		void $envValues;
 		return epfSession.getS3Settings();
 	});
+	const usagePercent = $derived(
+		$usage !== null && $usage.cap > 0 ? Math.min(100, Math.round(($usage.used / $usage.cap) * 100)) : 0
+	);
 	const browserDetails = $derived(
 		Object.entries($browserEstimate?.details ?? {}).map(([name, bytes]) => ({
 			name: usageDetailLabel(name),
@@ -168,7 +176,7 @@
 		}
 	};
 
-	const switchSection = (next: Section): void => {
+	const switchSection = (next: ConfigSection): void => {
 		section = next;
 		if (next !== "editor") {
 			message = "";
@@ -821,7 +829,7 @@
 		<div class="is-flex is-justify-content-space-between is-align-items-center mb-3">
 			<div class="buttons mb-0">
 				<button type="button" class="button is-small is-primary" onclick={() => void save()} disabled={$busy || !canWrite || !canSave || configEditor.readOnly}>
-					{configEditor.source?.kind === "path" ? "Save" : "Save as…"}
+					Save
 				</button>
 				<button type="button" class="button is-small" onclick={openSaveAs} disabled={$busy || !canWrite || !canSave || configEditor.readOnly}>Save as…</button>
 				<button type="button" class="button is-small" onclick={() => void applySession()} disabled={$busy || !canWrite || !canSave || configEditor.readOnly}>Apply for this session</button>
@@ -1076,6 +1084,27 @@
 		</div>
 	</div>
 {:else if section === "storage"}
+	{#if $usage !== null}
+		<div class="mb-5">
+			<div class="is-flex is-justify-content-space-between is-align-items-baseline">
+				<p class="is-size-7">
+					EPF files: <strong>{formatBytes($usage.used)}</strong> of {formatBytes($usage.cap)}
+				</p>
+				<span class="tag is-small">{usagePercent}%</span>
+			</div>
+			<progress
+				class={"progress is-small " + (usagePercent > 90 ? "is-danger" : usagePercent > 70 ? "is-warning" : "is-info")}
+				value={usagePercent}
+				max="100"
+				aria-label="EPF storage used"
+			></progress>
+			<p class="help">
+				Logical size of the workspaces, config library, editor drafts and chat sessions, against the limit
+				below.
+			</p>
+		</div>
+	{/if}
+
 	<div class="columns">
 		<div class="column is-7">
 			<h3 class="subtitle is-6">Browser storage limits</h3>
@@ -1112,13 +1141,7 @@
 		</div>
 	</div>
 
-	<h3 class="subtitle is-6 mt-5">Browser storage</h3>
-	{#if $usage !== null}
-		<p class="is-size-7">
-			EPF files (logical): <strong>{formatBytes($usage.used)}</strong> of {formatBytes($usage.cap)} — workspaces,
-			the config library, editor drafts and chat sessions.
-		</p>
-	{/if}
+	<h3 class="subtitle is-6 mt-5">Browser estimate</h3>
 	{#if !$persistent}
 		<p class="is-size-7 mt-2">
 			IndexedDB is unavailable in this browser context, so this session is memory-only: EPF files are not stored

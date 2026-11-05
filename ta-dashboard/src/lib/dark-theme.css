@@ -43,3 +43,18 @@ html[data-theme="dark"] .button.is-light:where(
 html[data-theme="dark"] .has-text-grey {
     color: var(--bulma-text-weak) !important;
 }
+
+/* .tag.is-*-light resolves its background from --bulma-light-l (96%) in both
+   schemes, so it stays near-white in dark mode — and the neutral .is-light
+   variant then puts weak grey text on it. Map the theme's soft/bold pair so
+   gradient tags keep their colour and stay readable on the dark surface. */
+html[data-theme="dark"] .tag.is-light,
+html[data-theme="dark"] .tag.is-primary.is-light,
+html[data-theme="dark"] .tag.is-link.is-light,
+html[data-theme="dark"] .tag.is-info.is-light,
+html[data-theme="dark"] .tag.is-success.is-light,
+html[data-theme="dark"] .tag.is-warning.is-light,
+html[data-theme="dark"] .tag.is-danger.is-light {
+    --bulma-tag-background-l: var(--bulma-soft-l);
+    --bulma-tag-color-l: var(--bulma-bold-l);
+}

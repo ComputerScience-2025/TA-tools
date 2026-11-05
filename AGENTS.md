@@ -85,12 +85,10 @@ Remote URL configs are treated as live. `loadRawConfig` leaves caching to the br
 S3-compatible upload is a single-file save, not a workspace export. `Save as → S3 bucket` uses `@aws-sdk/client-s3` (lazy-loaded,
 with `@smithy/fetch-http-handler` so Bun and browsers share the same fetch path). Addressing style is explicit and required, never
 inferred: `EPF_S3_ADDRESSING_STYLE=path` (`endpoint/bucket/key`) or `virtual` (`bucket.endpoint/key`). Use `virtual` for B2 and
-AWS, `path` for R2/MinIO. Settings are the eight `EPF_S3_*` variables in `env-vars.ts` (endpoint, region, bucket, optional key
-prefix, access key ID, secret, addressing style, optional public base URL); there is no session-token variable. The key prefix is
-joined to every saved object key and to the connection test, so it can match a B2 application key's file-name prefix. Overwrites
-are ETag-guarded (`If-Match`, or `If-None-Match: *` for create), and the bucket must allow CORS for `PUT`/`HEAD`, the SDK's
-headers, and expose `ETag`. `testS3Connection(key)` probes the object key being saved (not a fixed sentinel) so prefix restrictions
-are respected.
+AWS, `path` for R2/MinIO. Settings are the seven `EPF_S3_*` variables in `env-vars.ts` (endpoint, region, bucket, access key ID,
+secret, addressing style, optional public base URL); there is no prefix or session-token variable. Overwrites are ETag-guarded
+(`If-Match`, or `If-None-Match: *` for create), and the bucket must allow CORS for `PUT`/`HEAD`, the SDK's headers, and expose
+`ETag`. `testS3Connection()` performs a harmless sentinel `HEAD` so the UI can verify credentials and preflight before saving.
 
 Key dependencies: `ai` (Vercel AI SDK core), `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`, `@aws-sdk/client-s3`, `@smithy/fetch-http-handler`, `chalk`, `smol-toml`, `zod-defaults`.
 

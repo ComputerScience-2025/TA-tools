@@ -6,12 +6,12 @@
 	import { onMount } from "svelte";
 
 	import { errorMessage } from "$epf/util/errors.ts";
-	import { formatBytes } from "$epf/util/format.ts";
 
 	import ConfigPanel from "$lib/components/epf/ConfigPanel.svelte";
 	import ConsolePanel from "$lib/components/epf/ConsolePanel.svelte";
 	import OutputsPanel from "$lib/components/epf/OutputsPanel.svelte";
 	import SourcePanel from "$lib/components/epf/SourcePanel.svelte";
+	import type { ConfigSection } from "$lib/epf/config-sections.ts";
 	import { epfSession } from "$lib/epf/session";
 
 	type TabId = "source" | "config" | "console" | "outputs";
@@ -24,6 +24,7 @@
 	];
 
 	let activeTab = $state<TabId>("source");
+	let configSection = $state<ConfigSection>("editor");
 	let sessionError = $state<string | null>(null);
 	let lockFree = $state(false);
 	let takeoverError = $state<string | null>(null);
@@ -35,6 +36,11 @@
 	const usagePercent = $derived(
 		$usage !== null && $usage.cap > 0 ? Math.min(100, Math.round(($usage.used / $usage.cap) * 100)) : 0
 	);
+
+	const openStorage = (): void => {
+		activeTab = "config";
+		configSection = "storage";
+	};
 
 	onMount(() => {
 		void (async () => {
@@ -121,27 +127,18 @@
 						session only
 					</span>
 				{/if}
+				{#if usagePercent > 85}
+					<button
+						type="button"
+						class="button is-small is-warning is-light"
+						onclick={openStorage}
+						title="EPF's browser storage is nearly full — open the storage settings."
+					>
+						storage {usagePercent}%
+					</button>
+				{/if}
 			</div>
 		</div>
-
-		{#if $usage !== null}
-			<div class="mb-4">
-				<div class="is-size-7">
-					<span>
-						EPF files: {formatBytes($usage.used)} of {formatBytes($usage.cap)}
-					</span>
-				</div>
-				<progress class={"progress is-small " + (usagePercent > 90 ? "is-danger" : usagePercent > 70 ? "is-warning" : "is-info")} value={usagePercent} max="100"></progress>
-				<p class="help">
-					The logical size of everything EPF keeps in this browser — workspaces, the config library,
-					editor drafts and chat sessions — against the limit set in Config → Storage. The browser's
-					own whole-site figure is also on that panel; it is not comparable with this number.
-					{#if !$persistent}
-						This session is memory-only, so nothing here is actually stored.
-					{/if}
-				</p>
-			</div>
-		{/if}
 
 		{#if $writeBlocked !== null}
 			<article class="message is-warning">
@@ -210,7 +207,7 @@
 				<SourcePanel />
 			</div>
 			<div hidden={activeTab !== "config"}>
-				<ConfigPanel />
+				<ConfigPanel bind:section={configSection} />
 			</div>
 			{#if activeTab === "console"}
 				{#key $consoleEpoch}

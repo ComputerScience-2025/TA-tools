@@ -362,7 +362,7 @@
 				<tbody>
 					{#each $homeConfigs as file (file.name)}
 						{@const isDefault = $defaultHomeConfig === file.name}
-						<tr class={loadedPath === joinPath(homeDir(), file.name) ? "is-selected" : ""}>
+						<tr class={loadedPath === joinPath(homeDir(), file.name) ? "is-current" : ""}>
 							<td>
 								{#if renaming === file.name}
 									<div class="field has-addons mb-0">
@@ -460,7 +460,7 @@
 			<table class="table is-fullwidth is-narrow is-size-7">
 				<tbody>
 					{#each workspaceConfigs as name (name)}
-						<tr class={loadedPath === joinPath($activeWorkspace.path, name) ? "is-selected" : ""}>
+						<tr class={loadedPath === joinPath($activeWorkspace.path, name) ? "is-current" : ""}>
 							<td>
 								{#if workspaceRenaming === name}
 									<div class="field has-addons mb-0">
@@ -510,3 +510,17 @@
 		<div class="message-body">{error}</div>
 	</article>
 {/if}
+
+<style>
+	/* Bulma's `is-selected` paints the whole row with the primary colour, which
+	   leaves the dark-theme buttons and the link-coloured file name on a bright
+	   band. A tinted row adapts to both themes, like SourcePanel's workspace row. */
+	tr.is-current td {
+		background-color: color-mix(in srgb, var(--bulma-link) 12%, transparent);
+		color: var(--bulma-text-strong);
+	}
+
+	tr.is-current .button.is-ghost {
+		color: var(--bulma-link-text);
+	}
+</style>
