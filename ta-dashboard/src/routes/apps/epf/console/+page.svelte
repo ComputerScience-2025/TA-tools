@@ -1,5 +1,8 @@
+<svelte:head>
+	<title>EPF — Console</title>
+</svelte:head>
+
 <script lang="ts">
-	import { onMount } from "svelte";
 	import { toast } from "@zerodevx/svelte-toast";
 
 	import "@xterm/xterm/css/xterm.css";
@@ -9,7 +12,7 @@
 	import { epfSession } from "$lib/epf/session";
 	import { darkMode } from "$lib/stores";
 
-	const { configLoaded, logs, busy } = epfSession;
+	const { configLoaded, logs, busy, consoleEpoch } = epfSession;
 
 	let container: HTMLDivElement;
 	let ready = $state(false);
@@ -47,7 +50,6 @@
 		dispose(): void;
 	};
 
-	let disposed = false;
 	let term: TerminalLike | null = null;
 	let readline: ReadlineLike | null = null;
 	let resizeObserver: ResizeObserver | null = null;
@@ -115,14 +117,23 @@
 		}
 	};
 
-	onMount(() => {
+	// Reading the epoch makes "Clear log" rebuild the terminal in place; this
+	// replaces the {#key $consoleEpoch} wrapper the route used to provide.
+	$effect(() => {
+		void $consoleEpoch;
+
 		// xterm-readline's dispose() does not settle a pending read(), so race the
-		// read against this promise to let the console loop exit on unmount.
+		// read against this promise to let the console loop exit on rebuild.
+		let disposed = false;
 		let resolveDisposed: (() => void) | null = null;
 		const disposedPromise = new Promise<null>((resolve) => {
 			resolveDisposed = () => resolve(null);
 		});
 		let releaseSubscriptions: (() => void) | null = null;
+
+		ready = false;
+		reading = false;
+		pendingOutput = [];
 
 		void (async () => {
 			const [{ Terminal }, { FitAddon }, { Readline }] = await Promise.all([
@@ -262,6 +273,7 @@
 			readline = null;
 			term?.dispose();
 			term = null;
+			ready = false;
 		};
 	});
 

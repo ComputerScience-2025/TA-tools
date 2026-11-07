@@ -3,7 +3,7 @@
 	import type { ConfigFieldDescriptor } from "$epf/util/config-form-schema.ts";
 	import { errorMessage } from "$epf/util/errors.ts";
 
-	import MarkdownField from "$lib/components/epf/config/MarkdownField.svelte";
+	import MarkdownField from "./MarkdownField.svelte";
 	import { configEditor, configFormDescriptor, configFormError } from "$lib/epf/config-editor.svelte.ts";
 	import {
 		arrayItemLabel,

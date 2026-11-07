@@ -1,10 +1,14 @@
+<svelte:head>
+	<title>EPF — Outputs</title>
+</svelte:head>
+
 <script lang="ts">
 	import { onMount } from "svelte";
 
 	import { errorMessage } from "$epf/util/errors.ts";
 
 	import FileBrowser from "$lib/components/FileBrowser.svelte";
-	import SessionChat from "$lib/components/epf/SessionChat.svelte";
+	import SessionChat from "./SessionChat.svelte";
 	import { epfSession } from "$lib/epf/session";
 	import { createVfsFileSource } from "$lib/results/file-sources";
 

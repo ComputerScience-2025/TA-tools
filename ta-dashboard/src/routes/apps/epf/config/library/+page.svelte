@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { goto } from "$app/navigation";
 
 	import { basenamePath, joinPath } from "$epf/platform/path.ts";
 	import { toConfigSource } from "$epf/util/config-loader.ts";
@@ -8,13 +9,8 @@
 
 	import { configEditor } from "$lib/epf/config-editor.svelte.ts";
 	import { downloadTextFile, readTextFile } from "$lib/epf/config-model.ts";
+	import { configHref, epfHref } from "$lib/epf/routes.ts";
 	import { epfSession } from "$lib/epf/session.ts";
-
-	interface Props {
-		onEdit: () => void;
-	}
-
-	let { onEdit }: Props = $props();
 
 	let message = $state("");
 	let error = $state("");
@@ -26,6 +22,10 @@
 	let workspaceConfigs = $state<string[]>([]);
 	let lastWorkspace = "";
 	let fileInput: HTMLInputElement;
+
+	const openEditor = (): void => {
+		void goto(configHref("editor"));
+	};
 
 	const { homeConfigs, defaultHomeConfig, activeWorkspace, busy, writeBlocked } = epfSession;
 	const canWrite = $derived($writeBlocked === null);
@@ -65,7 +65,7 @@
 		try {
 			const document = await epfSession.openConfigDocument(source);
 			configEditor.openDocument(document);
-			onEdit();
+			openEditor();
 		} catch (err) {
 			fail(err);
 			if (configEditor.dirty) {
@@ -115,7 +115,7 @@
 			const text = await readTextFile(file);
 			configEditor.openImported(text, file.name);
 			message = `Imported ${file.name}. Review it and choose where to save it.`;
-			onEdit();
+			openEditor();
 		} catch (err) {
 			fail(err);
 			if (configEditor.dirty) {
@@ -140,7 +140,7 @@
 			// Starting a new document must not be blocked by draft cleanup.
 		}
 		configEditor.newDocument();
-		onEdit();
+		openEditor();
 	};
 
 	const setDefault = async (name: string): Promise<void> => {
@@ -453,7 +453,9 @@
 			{/if}
 		</p>
 		{#if $activeWorkspace === null}
-			<p class="is-size-7 has-text-grey">Create or fetch a workspace in the Source tab.</p>
+			<p class="is-size-7 has-text-grey">
+				Create or fetch a workspace in the <a href={epfHref("source")}>Source tab</a>.
+			</p>
 		{:else if workspaceConfigs.length === 0}
 			<p class="is-size-7 has-text-grey">No TOML files in this workspace.</p>
 		{:else}
@@ -514,7 +516,7 @@
 <style>
 	/* Bulma's `is-selected` paints the whole row with the primary colour, which
 	   leaves the dark-theme buttons and the link-coloured file name on a bright
-	   band. A tinted row adapts to both themes, like SourcePanel's workspace row. */
+	   band. A tinted row adapts to both themes, like the Source page's workspace row. */
 	tr.is-current td {
 		background-color: color-mix(in srgb, var(--bulma-link) 12%, transparent);
 		color: var(--bulma-text-strong);

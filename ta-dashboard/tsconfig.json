@@ -14,7 +14,11 @@
 		// .ts extensions (that package's convention).
 		"allowImportingTsExtensions": true,
 		"noEmit": true
-	}
+	},
+	// Pure route/URL helpers keep `.test.ts` siblings run by `bun test`; they
+	// import `bun:test`, which the browser-side svelte-check config does not
+	// provide types for.
+	"exclude": ["node_modules/**", "src/**/*.test.ts"]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
 	//

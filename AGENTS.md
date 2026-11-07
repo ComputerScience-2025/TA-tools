@@ -102,15 +102,31 @@ Commands (run in `ta-dashboard/`):
 - `bun run dev` — start Vite dev server
 - `bun run build` — production build
 - `bun run check` — `svelte-kit sync && svelte-check` (type checking)
+- `bun test` — unit tests for the pure helpers (routes, config sub-routes, shared-config hash, draft policy)
 - `bun run preview` — preview production build
 
 SvelteKit conventions:
 - Svelte 5 **Runes API** only: `$state()`, `$derived()`, `$effect()`, `$props()`, `{@render children?.()}`. Never use `export let`, `$:`, `on:click`.
 - Use `$lib/` alias for imports from `src/lib/` (never cross `src/lib` with relative paths).
-- SSR is disabled for `/tools/comments-calculator` and `/apps/epf` (`+page.js` has `export const ssr = false`).
+- SSR is disabled for `/tools/comments-calculator` and `/apps/epf` (`+layout.js` under the EPF route has `export const ssr = false`).
 - Pages that call GitHub API (`comments-calculator`) do so client-side via Octokit — PAT is read from a persisted Svelte store.
 
 Browser EPF integration:
+- `/apps/epf` is a layout plus four real routes: `source`, `config`, `console`, `outputs`. `apps/epf/+layout.svelte` owns the
+  session bootstrap, chrome, banners and tab navigation; `/apps/epf` itself redirects to `source` (preserving search and hash).
+  Route paths and labels live in `src/lib/epf/routes.ts` — link through `epfHref()`/`configHref()` instead of inline strings.
+  `config` is itself a nested layout with four sub-routes (`editor`, `library`, `environment`, `storage`); `/apps/epf/config`
+  redirects to `editor`. The config layout owns the source/version tags, the remote-config banner (refreshed once per entry)
+  and the section navigation. It also opens the engine's config in the singleton editor (`ConfigEditor.openActive`) and
+  reconciles that source's saved draft (`ConfigEditor.reconcileDraft`) once per entry, so the tags and the Library's "open"
+  marker are correct on every Config sub-route; the Editor page never replaces an in-memory document. The Config root
+  redirects to `editor`; there is no query-string section state.
+- EPF-only components live next to the route that uses them (colocated with `+page.svelte`, which SvelteKit ignores); `$lib/components`
+  is reserved for UI shared across routes (for example `FileBrowser.svelte`, also used by the results viewer). Route pages may
+  import `$app/state`/`$app/navigation`; components under `$lib/components` must not.
+- A tab page is **cold-mountable**: it may be unmounted at any time by a route change and must render correctly from a fresh
+  mount. State ownership: URL for navigable state, IndexedDB for durable state, a module rune store
+  (`source-form.svelte.ts`, `config-editor.svelte.ts`) for in-progress input, component state for transient feedback.
 - `$epf` is a SvelteKit alias for `../even-playingfield/src` (see `svelte.config.js`); `vite.config.ts` allows the dev server to serve
   files outside the project root, and declares the dynamically imported dependencies in `optimizeDeps`.
 - `src/lib/epf/session.ts` is the module-level singleton owning the `WebEPF` instance and exposing it as Svelte stores.
@@ -126,10 +142,10 @@ Browser EPF integration:
   URL hash (`#name=&comp=&data=`), and the browser workspace (`#source=workspace`, which lists the recorded outputs). Rendered
   markdown is sanitized with `dompurify` before `{@html}`, because a fetched repository's files are untrusted input.
 - The Config tab is an interactive editor, not a textarea. `src/lib/epf/config-editor.svelte.ts` owns the raw parsed document,
-  validation, preview, dirty tracking and draft autosave; `src/lib/components/epf/config/ConfigNode.svelte` renders the tree from
-  `util/config-form-schema.ts` (derived from `ConfigSchema`), and `ConfigLibrary.svelte` manages the home library + workspace
-  config picker. Editing operations live in `util/config-object.ts`; keep them pure and cover them with `bun test` in
-  `even-playingfield`.
+  validation, preview, dirty tracking and draft autosave; `apps/epf/config/ConfigNode.svelte` renders the tree from
+  `util/config-form-schema.ts` (derived from `ConfigSchema`), and `apps/epf/config/library/+page.svelte` manages the home
+  library + workspace config picker. Editing operations live in `util/config-object.ts`; keep them pure and cover them with
+  `bun test` in `even-playingfield`.
 - The library is `/epf/home/<name>.toml`, outside `/epf/workspaces`, so quota/TTL cleanup never removes it. A workspace with no
   config falls back to the selected library default (or `epf.toml`/a single file). `WebEPF.saveConfigToPath()` is the
   path-explicit save the editor uses; do not save through the engine's current source when the editor is on a different file.

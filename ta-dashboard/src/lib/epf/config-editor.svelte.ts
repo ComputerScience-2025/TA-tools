@@ -55,6 +55,7 @@ import {
 	sourceFileName,
 	sourceKey
 } from "./config-model.ts";
+import { decideDraftAction } from "./draft-policy.ts";
 import { epfSession } from "./session.ts";
 
 export type EditorMode = "form" | "preview";
@@ -145,6 +146,10 @@ export class ConfigEditor {
 	lastDraftSavedAt = $state<number | null>(null);
 	draftError = $state<string | null>(null);
 	error = $state<string | null>(null);
+	/** True while the config the engine uses is being read for editing. */
+	opening = $state(false);
+	/** Error from the last attempt to open the engine's config. */
+	openError = $state<string | null>(null);
 
 	private autosaveTimer: ReturnType<typeof setTimeout> | undefined;
 	private draftQueue: Promise<void> = Promise.resolve();
@@ -153,6 +158,10 @@ export class ConfigEditor {
 	 * flight checks it so an old draft cannot be resurrected after commit.
 	 */
 	private draftEpoch = 0;
+	/** Sources whose saved draft has been reconciled in this page session. */
+	private readonly draftCheckedSources = new Set<string>();
+	/** In-flight reconciliations, so a remount and a library open share one read. */
+	private readonly draftChecks = new Map<string, Promise<string | null>>();
 	private started = false;
 	private readonly onPageHide = (): void => {
 		void this.flushDraft();
@@ -191,6 +200,10 @@ export class ConfigEditor {
 		return this.configVersion === CURRENT_CONFIG_VERSION;
 	}
 
+	/**
+	 * Register the flush listeners once per page session. The editor is a
+	 * module singleton and route unmounts must not tear them down.
+	 */
 	start(): void {
 		if (this.started) {
 			return;
@@ -198,16 +211,6 @@ export class ConfigEditor {
 		this.started = true;
 		globalThis.addEventListener?.("pagehide", this.onPageHide);
 		globalThis.document?.addEventListener("visibilitychange", this.onVisibilityChange);
-	}
-
-	stop(): void {
-		if (!this.started) {
-			return;
-		}
-		this.started = false;
-		globalThis.removeEventListener?.("pagehide", this.onPageHide);
-		globalThis.document?.removeEventListener("visibilitychange", this.onVisibilityChange);
-		void this.flushDraft();
 	}
 
 	// --- Opening -------------------------------------------------------------
@@ -239,6 +242,34 @@ export class ConfigEditor {
 		});
 	}
 
+	/**
+	 * Open the config the engine is using, when the editor has no document.
+	 *
+	 * The Config layout calls this when the tab is entered, so the source and
+	 * version tags are populated on every Config section, not only on Editor.
+	 * The editor is a module singleton, so an existing in-memory document is
+	 * never replaced here.
+	 */
+	async openActive(source: ConfigSource | null, text: string): Promise<void> {
+		if (this.hasDocument || this.opening) {
+			this.openError = null;
+			return;
+		}
+		this.opening = true;
+		this.openError = null;
+		try {
+			if (source !== null) {
+				this.openDocument(await epfSession.openConfigDocument(source));
+			} else if (text.length > 0) {
+				this.openText(text, { kind: "inline", text, label: "session config" });
+			}
+		} catch (error) {
+			this.openError = errorMessage(error);
+		} finally {
+			this.opening = false;
+		}
+	}
+
 	private parse(text: string): { raw: RawConfigObject; version: number } {
 		if (text.trim().length === 0) {
 			throw new Error("The config file is empty.");
@@ -258,6 +289,7 @@ export class ConfigEditor {
 		source: ConfigSource | null
 	): OpenDocumentResult {
 		this.error = null;
+		this.openError = null;
 		this.externalChange = false;
 		this.draftNotice = null;
 		this.lastDraftSavedAt = null;
@@ -318,6 +350,7 @@ export class ConfigEditor {
 		this.hasDocument = true;
 		this.dirty = false;
 		this.externalChange = false;
+		this.openError = null;
 		this.changed({ dirty: false });
 	}
 
@@ -795,6 +828,78 @@ export class ConfigEditor {
 	markExternalChange(): void {
 		if (this.hasDocument) {
 			this.externalChange = true;
+		}
+	}
+
+	/**
+	 * Reconcile the open document with a saved draft for its source, at most
+	 * once per source and page session.
+	 *
+	 * The editor is a module singleton: a document opened from the Library
+	 * route while the editor page was unmounted must still get its draft
+	 * restored. Coalescing keeps a mount effect and an explicit open from
+	 * reading (and applying) the same draft twice.
+	 *
+	 * Returns a user-facing message when the reconciliation itself failed.
+	 */
+	async reconcileDraft(): Promise<string | null> {
+		const key = this.sourceKey;
+		if (this.draftCheckedSources.has(key)) {
+			return null;
+		}
+		const running = this.draftChecks.get(key);
+		if (running !== undefined) {
+			return await running;
+		}
+		const check = this.runDraftReconcile(key);
+		this.draftChecks.set(key, check);
+		try {
+			return await check;
+		} finally {
+			if (this.draftChecks.get(key) === check) {
+				this.draftChecks.delete(key);
+			}
+		}
+	}
+
+	private async runDraftReconcile(key: string): Promise<string | null> {
+		try {
+			const drafts = await epfSession.readEditorDrafts();
+			if (this.sourceKey !== key) {
+				// The source changed while the drafts were being read.
+				return null;
+			}
+			const draft = drafts.drafts[key];
+			if (draft === undefined) {
+				this.draftCheckedSources.add(key);
+				return null;
+			}
+			const action = decideDraftAction({
+				draftText: draft.text,
+				editorText: this.previewText,
+				draftBaseHash: draft.baseHash,
+				editorBaseHash: this.baseHash,
+				hasDocument: this.hasDocument
+			});
+			if (action === "discard") {
+				await epfSession.deleteEditorDraft(key);
+				this.draftCheckedSources.add(key);
+				return null;
+			}
+			if (action === "conflict") {
+				this.draftNotice = {
+					kind: "conflict",
+					message: "An unsaved draft exists, but the source changed since the draft was saved.",
+					draft
+				};
+				this.draftCheckedSources.add(key);
+				return null;
+			}
+			await this.restoreDraft(draft);
+			this.draftCheckedSources.add(key);
+			return null;
+		} catch (error) {
+			return `Could not restore the editor draft: ${errorMessage(error)}`;
 		}
 	}
 

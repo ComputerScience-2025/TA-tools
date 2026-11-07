@@ -1,8 +1,12 @@
-<script lang="ts">
-	import { onMount } from "svelte";
+<svelte:head>
+	<title>EPF — Source</title>
+</svelte:head>
 
+<script lang="ts">
+	import { configHref } from "$lib/epf/routes.ts";
 	import { epfShowWorkspaceFiles, epfAutoRunAfterFetch } from "$lib/epf/settings";
 	import { epfSession } from "$lib/epf/session";
+	import { sourceForm } from "$lib/epf/source-form.svelte.ts";
 
 	import { GITHUB_PAT_ENV_VAR } from "$epf/util/env-vars.ts";
 	import { errorMessage } from "$epf/util/errors.ts";
@@ -10,18 +14,9 @@
 	import type { FetchSourceSummary } from "$epf/hosts/web-host.ts";
 	import type { WorkspaceState } from "$epf/platform/web/web-state.ts";
 
-	type Mode = "url" | "fields";
-
-	let mode = $state<Mode>("url");
-	let githubUrl = $state("");
-	let owner = $state("");
-	let repo = $state("");
-	let ref = $state("");
-	let directory = $state("");
 	let message = $state("");
 	let lastSummary = $state<FetchSourceSummary | null>(null);
 	let dragActive = $state(false);
-	let targetDirectory = $state("");
 	let fileInput: HTMLInputElement;
 	let folderInput: HTMLInputElement;
 
@@ -32,10 +27,6 @@
 	/** Writes are refused while another tab owns browser storage (or in a viewer). */
 	const canWrite = $derived($writeBlocked === null);
 
-	onMount(() => {
-		githubUrl = "https://github.com/";
-	});
-
 	const fetchSource = async (): Promise<void> => {
 		if ($busy) {
 			return;
@@ -43,14 +34,14 @@
 		message = "";
 		lastSummary = null;
 		try {
-			const request = mode === "url"
-				? { kind: "url" as const, url: githubUrl.trim() }
+			const request = sourceForm.mode === "url"
+				? { kind: "url" as const, url: sourceForm.githubUrl.trim() }
 				: {
 					kind: "repo" as const,
-					owner: owner.trim(),
-					repo: repo.trim(),
-					ref: ref.trim().length > 0 ? ref.trim() : undefined,
-					directory: directory.trim().length > 0 ? directory.trim() : undefined
+					owner: sourceForm.owner.trim(),
+					repo: sourceForm.repo.trim(),
+					ref: sourceForm.ref.trim().length > 0 ? sourceForm.ref.trim() : undefined,
+					directory: sourceForm.directory.trim().length > 0 ? sourceForm.directory.trim() : undefined
 				};
 			const summary = await epfSession.fetchSource(request);
 			lastSummary = summary;
@@ -115,8 +106,8 @@
 			if ($activeWorkspace === null) {
 				await epfSession.createWorkspace("uploads", "upload");
 			}
-			await epfSession.uploadFiles(payload, targetDirectory.trim());
-			message = `Uploaded ${payload.length} file(s) to ${$activeWorkspace?.label ?? "the workspace"}${targetDirectory.trim().length > 0 ? `/${targetDirectory.trim()}` : ""}.`;
+			await epfSession.uploadFiles(payload, sourceForm.targetDirectory.trim());
+			message = `Uploaded ${payload.length} file(s) to ${$activeWorkspace?.label ?? "the workspace"}${sourceForm.targetDirectory.trim().length > 0 ? `/${sourceForm.targetDirectory.trim()}` : ""}.`;
 		} catch (err) {
 			message = errorMessage(err);
 		}
@@ -172,22 +163,22 @@
 		<h3 class="subtitle is-6">GitHub source</h3>
 
 		<div class="buttons has-addons mb-3">
-			<button type="button" class={"button is-small" + (mode === "url" ? " is-primary" : "")} onclick={() => (mode = "url")}>
+			<button type="button" class={"button is-small" + (sourceForm.mode === "url" ? " is-primary" : "")} onclick={() => (sourceForm.mode = "url")}>
 				Paste URL
 			</button>
-			<button type="button" class={"button is-small" + (mode === "fields" ? " is-primary" : "")} onclick={() => (mode = "fields")}>
+			<button type="button" class={"button is-small" + (sourceForm.mode === "fields" ? " is-primary" : "")} onclick={() => (sourceForm.mode = "fields")}>
 				Owner / repo / branch
 			</button>
 		</div>
 
-		{#if mode === "url"}
+		{#if sourceForm.mode === "url"}
 			<div class="field">
 				<label class="label is-small" for="github-url">Repository, directory or pull request URL</label>
 				<input
 					id="github-url"
 					class="input is-small"
 					placeholder="https://github.com/owner/repo/tree/branch/dir"
-					bind:value={githubUrl}
+					bind:value={sourceForm.githubUrl}
 				/>
 				<p class="help">Tree, blob and pull request URLs are supported; a branch or tag may contain slashes.</p>
 			</div>
@@ -195,21 +186,21 @@
 			<div class="field is-grouped">
 				<div class="control is-expanded">
 					<label class="label is-small" for="gh-owner">Owner</label>
-					<input id="gh-owner" class="input is-small" bind:value={owner} placeholder="owner" />
+					<input id="gh-owner" class="input is-small" bind:value={sourceForm.owner} placeholder="owner" />
 				</div>
 				<div class="control is-expanded">
 					<label class="label is-small" for="gh-repo">Repository</label>
-					<input id="gh-repo" class="input is-small" bind:value={repo} placeholder="repo" />
+					<input id="gh-repo" class="input is-small" bind:value={sourceForm.repo} placeholder="repo" />
 				</div>
 			</div>
 			<div class="field is-grouped">
 				<div class="control is-expanded">
 					<label class="label is-small" for="gh-ref">Branch / tag / SHA</label>
-					<input id="gh-ref" class="input is-small" bind:value={ref} placeholder="main (defaults to the default branch)" />
+					<input id="gh-ref" class="input is-small" bind:value={sourceForm.ref} placeholder="main (defaults to the default branch)" />
 				</div>
 				<div class="control is-expanded">
 					<label class="label is-small" for="gh-dir">Directory</label>
-					<input id="gh-dir" class="input is-small" bind:value={directory} placeholder="src" />
+					<input id="gh-dir" class="input is-small" bind:value={sourceForm.directory} placeholder="src" />
 				</div>
 			</div>
 		{/if}
@@ -224,14 +215,14 @@
 			</label>
 		</div>
 		<p class="help">
-			Token for private repositories: <strong>{tokenSet ? "see the Config tab" : "not set"}</strong>
-			(<code>{GITHUB_PAT_ENV_VAR}</code>).
+			Token for private repositories: <strong>{tokenSet ? "set" : "not set"}</strong>
+			(<a href={configHref("environment")}>Config → Environment</a>, <code>{GITHUB_PAT_ENV_VAR}</code>).
 		</p>
 
 		<h3 class="subtitle is-6 mt-5">Manual upload</h3>
 		<div class="field">
 			<label class="label is-small" for="upload-dir">Upload into (relative to the workspace root)</label>
-			<input id="upload-dir" class="input is-small" placeholder="workspace root" bind:value={targetDirectory} />
+			<input id="upload-dir" class="input is-small" placeholder="workspace root" bind:value={sourceForm.targetDirectory} />
 			<p class="help">
 				Folder uploads keep the folder name, so a folder called <code>submission</code> lands in
 				<code>submission/…</code>. Set the config's <code>search_directory</code> to match, or upload into a
