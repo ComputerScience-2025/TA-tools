@@ -551,7 +551,9 @@
 								{/if}
 								The config may contain API keys, so keep the bucket private unless a public config is intended.
 								The bucket must allow CORS from this page for PUT and HEAD, allow the headers the AWS
-								SDK sends (authorization, x-amz-*, amz-sdk-*, content-type and if-*), and expose the ETag response header.
+								SDK sends (authorization, x-amz-*, amz-sdk-* and content-type), and expose the ETag response
+								header. EPF reads the object's ETag with HEAD before writing. That check is optimistic,
+								not atomic: an edit saved by someone else between the check and the write is not detected.
 							</p>
 							<div class="buttons mt-2 mb-0">
 								<button

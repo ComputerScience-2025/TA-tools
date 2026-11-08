@@ -50,13 +50,6 @@ export type S3ObjectInfo = {
     etag: string | null;
 };
 
-export type PutS3Options = {
-    /** Fail with 412 when the object no longer has this ETag. */
-    ifMatch?: string | null;
-    /** Fail if the object already exists. */
-    ifNoneMatch?: boolean;
-};
-
 type S3Sdk = typeof import("@aws-sdk/client-s3");
 
 let sdkPromise: Promise<S3Sdk> | null = null;
@@ -278,11 +271,6 @@ function isNotFound(error: unknown): boolean {
 
 function s3Failure(error: unknown, action: string): Error {
     const status = errorStatus(error);
-    if (status === 412) {
-        return new Error(
-            "The config changed on S3 since it was read. Reload it and try again, or confirm an overwrite.",
-        );
-    }
     if (status === 403) {
         return new Error(
             `S3 refused the ${action} (403). Check the access key, bucket permissions, and CORS. ` +
@@ -338,12 +326,18 @@ export async function headS3Object(settings: S3Settings, key: string): Promise<S
     }
 }
 
-/** Write one config file. Returns the object's new ETag when exposed. */
+/**
+ * Write one config file. Returns the object's new ETag when exposed.
+ *
+ * No conditional `If-Match` / `If-None-Match` header is sent: those preconditions
+ * are optional in S3, and some providers (Backblaze B2 among them) reject them
+ * with `501 NotImplemented`. Callers enforce concurrency with a `HEAD` check
+ * before calling this function.
+ */
 export async function putS3Object(
     settings: S3Settings,
     key: string,
     text: string,
-    options: PutS3Options = {},
 ): Promise<{ etag: string | null }> {
     const { PutObjectCommand } = await loadSdk();
     const client = await createS3Client(settings);
@@ -354,20 +348,11 @@ export async function putS3Object(
                 Key: key,
                 Body: text,
                 ContentType: "application/toml; charset=utf-8",
-                IfMatch: options.ifMatch ?? undefined,
-                IfNoneMatch: options.ifNoneMatch === true ? "*" : undefined,
             }),
             { abortSignal: signal },
         ));
         return { etag: response.ETag ?? null };
     } catch (error) {
-        const status = errorStatus(error);
-        if (
-            options.ifNoneMatch === true &&
-            (status === 412 || status === 409)
-        ) {
-            throw new Error(`The S3 object "${key}" already exists. Choose another key or enable overwrite.`);
-        }
         throw s3Failure(error, "save");
     } finally {
         client.destroy();

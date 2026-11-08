@@ -154,11 +154,16 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
             return new Response(null, { status: 200, headers: { ETag: existing.etag } });
         }
         if (method === "PUT") {
-            if (failS3Put || (headers.get("if-match") !== null && headers.get("if-match") !== existing?.etag)) {
-                return new Response("PreconditionFailed", { status: 412 });
+            // EPF must not depend on optional S3 conditional writes: several
+            // providers (Backblaze B2 among them) reject them with 501.
+            if (headers.get("if-match") !== null || headers.get("if-none-match") !== null) {
+                return new Response(
+                    "<Error><Code>NotImplemented</Code><Message>A header you provided implies functionality that is not implemented</Message></Error>",
+                    { status: 501 },
+                );
             }
-            if (headers.get("if-none-match") === "*" && existing !== undefined) {
-                return new Response("PreconditionFailed", { status: 412 });
+            if (failS3Put) {
+                return new Response("ServerError", { status: 500 });
             }
             const body = request !== null ? await request.clone().text() : String(init?.body ?? "");
             const etag = `"s3-${s3Objects.size + 1}"`;
@@ -261,6 +266,18 @@ function configureS3(
     target.web.env.set(S3_ACCESS_KEY_ID_ENV_VAR, "key-id");
     target.web.env.set(S3_SECRET_ACCESS_KEY_ENV_VAR, "secret-key");
     target.web.env.set(S3_ADDRESSING_STYLE_ENV_VAR, addressingStyle);
+}
+
+/** Every save must be vendor-neutral: no optional S3 conditional headers. */
+function expectUnconditionalPuts(): void {
+    for (const entry of requestLog) {
+        if (entry.init?.method !== "PUT") {
+            continue;
+        }
+        const headers = new Headers(entry.init.headers);
+        expect(headers.get("if-match")).toBeNull();
+        expect(headers.get("if-none-match")).toBeNull();
+    }
 }
 
 async function createUrlConfigEpf(): Promise<WebEPF> {
@@ -784,20 +801,22 @@ describe("S3 config saving", () => {
 
         expect(saved.bucket).toBe("bucket");
         expect(saved.key).toBe("shared/epf.toml");
+        expect(saved.checked).toBe(true);
         expect(s3Objects.get("shared/epf.toml")?.body).toBe(REPO_CONFIG);
         await expect(epf.saveConfigToS3(REPO_CONFIG, { key: "shared/epf.toml" })).rejects.toThrow("already exists");
     });
 
-    test("overwrites with an ETag guard", async () => {
+    test("overwrites after checking the object with HEAD", async () => {
         configureS3(epf);
         await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml" });
+        requestLog.length = 0;
 
         const saved = await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true });
 
         expect(saved.etag).not.toBeNull();
-        const puts = requestLog.filter((entry) => entry.init?.method === "PUT");
-        const headers = new Headers(puts[puts.length - 1]?.init?.headers);
-        expect(headers.get("if-match")).not.toBeNull();
+        expect(saved.checked).toBe(true);
+        expect(requestLog.filter((entry) => entry.init?.method === "HEAD")).toHaveLength(1);
+        expectUnconditionalPuts();
     });
 
     test("uses the explicit virtual addressing style", async () => {
@@ -851,14 +870,13 @@ describe("S3 config saving", () => {
         expect(s3Objects.has("configs/epf.toml")).toBe(true);
     });
 
-    test("reports a concurrent change instead of clobbering it", async () => {
+    test("reports a failed PUT", async () => {
         configureS3(epf);
-        await epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml" });
         failS3Put = true;
 
         await expect(
-            epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true }),
-        ).rejects.toThrow("changed on S3");
+            epf.saveConfigToS3(REPO_CONFIG, { key: "epf.toml" }),
+        ).rejects.toThrow("(500)");
     });
 
     test("fails before any network call when settings are missing", async () => {
@@ -884,7 +902,7 @@ describe("S3 config saving", () => {
         expect(saved.publicURL).toBe("https://configs.example.com/shared/epf.toml");
     });
 
-    test("uses the S3 ETag captured when the public URL was read", async () => {
+    test("does not send conditional headers when the public URL was read", async () => {
         const remote = await createUrlConfigEpf();
         configureS3(remote);
         remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/");
@@ -894,10 +912,25 @@ describe("S3 config saving", () => {
 
         await remote.saveConfigToS3(REPO_CONFIG, { key: "epf.toml", overwrite: true });
 
-        const puts = requestLog.filter((entry) => entry.init?.method === "PUT");
-        const headers = new Headers(puts[puts.length - 1]?.init?.headers);
-        expect(headers.get("if-match")).toBe('"remote-1"');
-        expect(requestLog.some((entry) => entry.init?.method === "HEAD")).toBe(false);
+        expect(requestLog.some((entry) => entry.init?.method === "HEAD")).toBe(true);
+        expectUnconditionalPuts();
+    });
+
+    test("force overwrites without checking the object", async () => {
+        configureS3(epf);
+        s3Objects.set("epf.toml", { body: "old", etag: '"v1"' });
+        requestLog.length = 0;
+
+        const saved = await epf.saveConfigToS3(REPO_CONFIG, {
+            key: "epf.toml",
+            overwrite: true,
+            force: true,
+        });
+
+        expect(saved.checked).toBe(false);
+        expect(requestLog.filter((entry) => entry.init?.method === "HEAD")).toHaveLength(0);
+        expect(requestLog.filter((entry) => entry.init?.method === "PUT")).toHaveLength(1);
+        expect(s3Objects.get("epf.toml")?.body).toBe(REPO_CONFIG);
     });
 
     test("rejects an overwrite when the object changed after it was read", async () => {

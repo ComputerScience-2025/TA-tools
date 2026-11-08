@@ -180,6 +180,11 @@ export type SavedS3Config = {
     url: string;
     /** Public URL when `EPF_S3_PUBLIC_BASE_URL` is configured. */
     publicURL: string | null;
+    /**
+     * True when a concurrency guard was evaluated before the write. False only
+     * for a forced overwrite, which skips the check entirely.
+     */
+    checked: boolean;
 };
 
 export type S3ConnectionTestResult =
@@ -1006,8 +1011,17 @@ export class WebEPF {
 
     /**
      * Write one config file to the configured S3-compatible bucket. The config
-     * is validated before any network call, and an overwrite is guarded by the
-     * object's ETag so a concurrent edit fails instead of being clobbered.
+     * is validated before any network call.
+     *
+     * The concurrency guard is optimistic so it works on every provider: the
+     * object is HEADed first and its ETag is compared with the ETag captured
+     * when the config was read (a create must not overwrite an existing key).
+     * No conditional `If-Match` / `If-None-Match` header is sent, because some
+     * providers reject it with `501 NotImplemented`.
+     *
+     * Limitation: the check is not atomic. A write that lands between the HEAD
+     * and the PUT is not detected. {@link SaveConfigToS3Options.force} skips the
+     * check entirely.
      */
     async saveConfigToS3(text: string, options: SaveConfigToS3Options = {}): Promise<SavedS3Config> {
         this.assertWritable("Saving a config to S3");
@@ -1025,43 +1039,41 @@ export class WebEPF {
             key,
             this.web.env.get(S3_PUBLIC_BASE_URL_ENV_VAR),
         );
+        const checked = !(options.overwrite && options.force);
 
-        if (!options.overwrite) {
-            const saved = await putS3Object(settings, key, text, { ifNoneMatch: true });
-            this.rememberSavedETag(publicURL, saved.etag);
-            return this.s3Result(settings, key, saved.etag);
+        if (checked) {
+            const expected = publicURL === null
+                ? null
+                : this.s3ETags.get(normalizedURL(publicURL)) ?? null;
+            const existing = await headS3Object(settings, key);
+            if (!options.overwrite) {
+                if (existing.exists) {
+                    throw new Error(
+                        `The S3 object "${key}" already exists. Choose another key or enable overwrite.`,
+                    );
+                }
+            } else {
+                if (existing.etag === null) {
+                    this.web.logs.log(
+                        "warn",
+                        `The S3 endpoint did not expose an ETag for '${key}'; the concurrency check was skipped.`,
+                    );
+                }
+                if (
+                    expected !== null &&
+                    existing.etag !== null &&
+                    existing.etag !== expected
+                ) {
+                    throw new Error(
+                        "The config changed on S3 since it was read. Reload it and try again, or confirm an overwrite.",
+                    );
+                }
+            }
         }
 
-        if (options.force) {
-            const saved = await putS3Object(settings, key, text);
-            this.rememberSavedETag(publicURL, saved.etag);
-            return this.s3Result(settings, key, saved.etag);
-        }
-
-        // The ETag captured when the config was read is the strongest check: it
-        // catches an edit another person saved after this user loaded the file.
-        const knownETag = publicURL === null ? null : this.s3ETags.get(normalizedURL(publicURL)) ?? null;
-        if (knownETag !== null) {
-            const saved = await putS3Object(settings, key, text, { ifMatch: knownETag });
-            this.rememberSavedETag(publicURL, saved.etag);
-            return this.s3Result(settings, key, saved.etag);
-        }
-
-        const existing = await headS3Object(settings, key);
-        if (!existing.exists) {
-            const saved = await putS3Object(settings, key, text, { ifNoneMatch: true });
-            this.rememberSavedETag(publicURL, saved.etag);
-            return this.s3Result(settings, key, saved.etag);
-        }
-        if (existing.etag === null) {
-            this.web.logs.log(
-                "warn",
-                `The S3 endpoint did not expose an ETag for '${key}'; saving without a concurrency check.`,
-            );
-        }
-        const saved = await putS3Object(settings, key, text, { ifMatch: existing.etag });
+        const saved = await putS3Object(settings, key, text);
         this.rememberSavedETag(publicURL, saved.etag);
-        return this.s3Result(settings, key, saved.etag);
+        return this.s3Result(settings, key, saved.etag, checked);
     }
 
     /** Keep the ETag used for the next overwrite of the same public URL. */
@@ -1079,7 +1091,12 @@ export class WebEPF {
         }
     }
 
-    private s3Result(settings: S3Settings, key: string, etag: string | null): SavedS3Config {
+    private s3Result(
+        settings: S3Settings,
+        key: string,
+        etag: string | null,
+        checked: boolean,
+    ): SavedS3Config {
         const publicURL = publicS3ObjectUrl(
             settings,
             key,
@@ -1091,6 +1108,7 @@ export class WebEPF {
             etag,
             url: s3ObjectUrl(settings, key),
             publicURL,
+            checked,
         };
     }
 
