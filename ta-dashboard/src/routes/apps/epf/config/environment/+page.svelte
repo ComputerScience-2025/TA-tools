@@ -12,7 +12,6 @@
 	let message = $state("");
 	let actionIssues = $state<string[]>([]);
 	let localEnv = $state<Record<string, string>>({});
-	let localPersist = $state<Record<string, boolean>>({});
 	/** Last values copied from the session, to tell external changes from drafts. */
 	let appliedEnv = $state<Record<string, string>>({});
 
@@ -20,13 +19,10 @@
 
 	const syncEnvFromSession = (): void => {
 		const values: Record<string, string> = {};
-		const persisted: Record<string, boolean> = {};
 		for (const spec of ENV_VARS) {
 			values[spec.name] = epfSession.getEnv(spec.name);
-			persisted[spec.name] = $envValues.find((entry) => entry.name === spec.name)?.persisted ?? false;
 		}
 		localEnv = values;
-		localPersist = persisted;
 		appliedEnv = { ...values };
 	};
 
@@ -66,22 +62,33 @@
 	});
 
 	const applyEnv = (spec: EnvVarSpec): void => {
-		const remember = spec.secret
-			? $epfRememberSecrets && localPersist[spec.name] === true
-			: true;
+		const remember = spec.secret ? $epfRememberSecrets : true;
 		epfSession.setEnv(spec.name, localEnv[spec.name] ?? "", remember);
+		appliedEnv[spec.name] = localEnv[spec.name] ?? "";
 		message = `${spec.name} updated${remember ? " and remembered in this browser" : " for this session"}.`;
 		actionIssues = [];
 	};
 
 	const setRememberSecrets = (allowed: boolean): void => {
 		epfRememberSecrets.set(allowed);
-		if (!allowed) {
+		if (allowed) {
+			// Secrets applied while the switch was off only live in memory; persist
+			// them now, since the switch is the only per-secret control.
+			for (const spec of ENV_VARS) {
+				if (!spec.secret) {
+					continue;
+				}
+				const value = epfSession.getEnv(spec.name);
+				if (value.length > 0) {
+					epfSession.setEnv(spec.name, value, true);
+				}
+			}
+			message = "Secrets will now be remembered in this browser.";
+		} else {
 			epfSession.forgetPersistedSecrets();
-			syncEnvFromSession();
 			message = "Secrets will no longer be remembered on this device.";
-			actionIssues = [];
 		}
+		actionIssues = [];
 	};
 </script>
 
@@ -89,9 +96,8 @@
 	<div class="column is-7">
 		<h3 class="subtitle is-6">Environment variables</h3>
 		<p class="help mb-3">
-			A browser has no environment, so the variables EPF reads are set here. Secrets stay in memory unless
-			"remember" is ticked; other values are remembered in this browser. This switch does not affect config drafts
-			or saved configs, which always persist.
+			Values EPF reads from the environment. Non-secret values are remembered in this browser; secrets are
+			remembered only when the switch below is on.
 		</p>
 
 		<label class="checkbox is-size-7 mb-3" for="remember-secrets">
@@ -122,30 +128,18 @@
 					<div class="control">
 						<button id={`env-set-${spec.name}`} class="button is-small" onclick={() => applyEnv(spec)}>Set</button>
 					</div>
-				</div>
-				<div class="is-flex is-justify-content-space-between is-align-items-center mt-2">
-					{#if spec.secret}
-						<label class="checkbox is-size-7" for={`persist-${spec.name}`}>
-							<input
-								id={`persist-${spec.name}`}
-								type="checkbox"
-								class="mr-2"
-								disabled={!$epfRememberSecrets}
-								checked={localPersist[spec.name] === true}
-								onchange={(event) => {
-									localPersist[spec.name] = event.currentTarget.checked;
-								}}
-							/>
-							Remember on this device
-						</label>
-					{:else}
-						<span></span>
-					{/if}
-					<button id={`env-clear-${spec.name}`} class="button is-small is-text" onclick={() => {
-						epfSession.clearEnv(spec.name);
-						localEnv[spec.name] = "";
-						localPersist[spec.name] = false;
-					}}>Clear</button>
+					<div class="control">
+						<button
+							id={`env-clear-${spec.name}`}
+							class="button is-small is-text"
+							onclick={() => {
+								epfSession.clearEnv(spec.name);
+								localEnv[spec.name] = "";
+							}}
+						>
+							Clear
+						</button>
+					</div>
 				</div>
 			</div>
 		{/each}
@@ -153,8 +147,8 @@
 	<div class="column is-5">
 		<article class="message is-warning is-small">
 			<div class="message-body">
-				Config drafts and library files are stored in IndexedDB so a refresh does not lose work. They include any
-				API keys the config contains. Use a private browser profile on shared machines.
+				Config drafts and library files are always stored in IndexedDB, even when secret remembering is off. They
+				include any API keys the config contains. Use a private browser profile on shared machines.
 			</div>
 		</article>
 	</div>

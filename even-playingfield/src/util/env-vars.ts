@@ -76,7 +76,7 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     },
     {
         name: S3_SECRET_ACCESS_KEY_ENV_VAR,
-        description: "Secret access key. Stays in memory unless 'Remember on this device' is enabled.",
+        description: "Secret access key. Stays in memory unless secret remembering is enabled.",
         scope: "storage",
         secret: true,
         example: "secret access key",

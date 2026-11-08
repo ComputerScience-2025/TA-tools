@@ -57,7 +57,6 @@ const CONFIG_REFRESHING_COMMANDS = new Set(["reload"]);
 export type EnvVarValue = {
 	name: string;
 	value: string;
-	persisted: boolean;
 };
 
 /** Live output of a streaming chat turn. */
@@ -603,11 +602,9 @@ class EpfSession {
 		if (this.epf === null) {
 			return [];
 		}
-		const persisted = new Set(this.epf.web.env.persistedNames());
 		return Object.entries(this.epf.web.env.all()).map(([name, value]) => ({
 			name,
-			value,
-			persisted: persisted.has(name)
+			value
 		}));
 	}
 
