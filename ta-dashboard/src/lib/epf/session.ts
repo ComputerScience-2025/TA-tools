@@ -15,7 +15,6 @@ import { fileTypeFor } from "$lib/results/file-sources";
 
 import { COMMAND_NAMES } from "$epf/command-handler.ts";
 import { isStorageLockFree } from "$epf/platform/web/storage-lock.ts";
-import { ENV_VARS } from "$epf/util/env-vars.ts";
 import { errorMessage } from "$epf/util/errors.ts";
 
 import type {
@@ -612,26 +611,13 @@ class EpfSession {
 		return this.epf?.web.env.get(name) ?? "";
 	}
 
-	setEnv(name: string, value: string, persist: boolean): void {
-		this.epf?.web.env.set(name, value, { persist });
+	setEnv(name: string, value: string): void {
+		this.epf?.web.env.set(name, value);
 		this.refreshEnvValues();
 	}
 
 	clearEnv(name: string): void {
 		this.epf?.web.env.clear(name);
-		this.refreshEnvValues();
-	}
-
-	/**
-	 * Forget secrets remembered in this browser (the "remember" switch was turned
-	 * off). The values stay usable for this tab, as they do by default.
-	 */
-	forgetPersistedSecrets(): void {
-		if (this.epf === null) {
-			return;
-		}
-		const secrets = ENV_VARS.filter((spec) => spec.secret).map((spec) => spec.name);
-		this.epf.web.env.clearPersisted(secrets);
 		this.refreshEnvValues();
 	}
 

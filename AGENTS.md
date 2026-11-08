@@ -54,7 +54,7 @@ The core (`engine/`, `workflow/`, `util/`) must run under Bun *and* in a browser
 | Interface | Bun | Browser |
 |---|---|---|
 | `VirtualFileSystem` | `BunFileSystem` (node:fs) | `ZenFileSystem` (@zenfs/core + IndexedDB) |
-| `EnvProvider` | `process.env` | `localStorage` JSON + session overlay |
+| `EnvProvider` | `process.env` | `localStorage` JSON |
 | `ShellRunner` | Bun `$` | unavailable (testing workflows fail fast) |
 | `Logger` | console + chalk | ring buffer + xterm renderer |
 | `toml` | `Bun.TOML.parse` | `smol-toml` |

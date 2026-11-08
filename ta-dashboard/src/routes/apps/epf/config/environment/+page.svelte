@@ -4,7 +4,6 @@
 	import { ENV_VARS } from "$epf/util/env-vars.ts";
 	import { errorMessage } from "$epf/util/errors.ts";
 
-	import { epfRememberSecrets } from "$lib/epf/settings";
 	import { epfSession } from "$lib/epf/session";
 
 	import type { EnvVarSpec } from "$epf/util/env-vars.ts";
@@ -62,32 +61,9 @@
 	});
 
 	const applyEnv = (spec: EnvVarSpec): void => {
-		const remember = spec.secret ? $epfRememberSecrets : true;
-		epfSession.setEnv(spec.name, localEnv[spec.name] ?? "", remember);
+		epfSession.setEnv(spec.name, localEnv[spec.name] ?? "");
 		appliedEnv[spec.name] = localEnv[spec.name] ?? "";
-		message = `${spec.name} updated${remember ? " and remembered in this browser" : " for this session"}.`;
-		actionIssues = [];
-	};
-
-	const setRememberSecrets = (allowed: boolean): void => {
-		epfRememberSecrets.set(allowed);
-		if (allowed) {
-			// Secrets applied while the switch was off only live in memory; persist
-			// them now, since the switch is the only per-secret control.
-			for (const spec of ENV_VARS) {
-				if (!spec.secret) {
-					continue;
-				}
-				const value = epfSession.getEnv(spec.name);
-				if (value.length > 0) {
-					epfSession.setEnv(spec.name, value, true);
-				}
-			}
-			message = "Secrets will now be remembered in this browser.";
-		} else {
-			epfSession.forgetPersistedSecrets();
-			message = "Secrets will no longer be remembered on this device.";
-		}
+		message = `${spec.name} updated.`;
 		actionIssues = [];
 	};
 </script>
@@ -96,20 +72,8 @@
 	<div class="column is-7">
 		<h3 class="subtitle is-6">Environment variables</h3>
 		<p class="help mb-3">
-			Values EPF reads from the environment. Non-secret values are remembered in this browser; secrets are
-			remembered only when the switch below is on.
+			Values EPF reads from the environment. Values set here are remembered in this browser.
 		</p>
-
-		<label class="checkbox is-size-7 mb-3" for="remember-secrets">
-			<input
-				id="remember-secrets"
-				type="checkbox"
-				class="mr-2"
-				checked={$epfRememberSecrets}
-				onchange={(event) => setRememberSecrets(event.currentTarget.checked)}
-			/>
-			Allow remembering secrets in this browser
-		</label>
 
 		{#each ENV_VARS as spec (spec.name)}
 			<div class="field">
@@ -120,7 +84,9 @@
 						<input
 							id={`env-${spec.name}`}
 							class="input is-small"
-							type={spec.secret ? "password" : "text"}
+							type="text"
+							autocomplete="off"
+							spellcheck="false"
 							placeholder={spec.example ?? ""}
 							bind:value={localEnv[spec.name]}
 						/>
@@ -147,8 +113,9 @@
 	<div class="column is-5">
 		<article class="message is-warning is-small">
 			<div class="message-body">
-				Config drafts and library files are always stored in IndexedDB, even when secret remembering is off. They
-				include any API keys the config contains. Use a private browser profile on shared machines.
+				EPF's browser storage is not encrypted. Environment values, config drafts and library files are stored
+				as plain text and may contain API keys. These are configuration values, not password-manager entries —
+				do not reuse a real password. Use a private browser profile on shared machines.
 			</div>
 		</article>
 	</div>

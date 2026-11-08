@@ -91,7 +91,7 @@ What differs from the CLI:
 | Workspaces | Each fetched repository / upload target is a workspace under `/epf/workspaces/<slug>`; the active one plays the role of the CLI's `--dir` |
 | Storage limits | Per-file cap (8 MiB), total cap (128 MiB), 7-day TTL for unpinned workspaces. Over the cap, the least recently used unpinned workspace is removed; pinned and active workspaces are never touched |
 | Config | Explicit source → `EPF_CONFIG_URL` → `epf.toml` in the active workspace → the durable library default (`/epf/home`). Workspace files and URLs are remembered across reloads; pasted configs are not remembered as the engine source |
-| Environment | A browser has none: values are set in the web UI (see `src/util/env-vars.ts`). Secrets stay in memory unless "remember" is enabled |
+| Environment | A browser has none: values are set in the web UI (see `src/util/env-vars.ts`) and stored as plain text in browser storage, like config drafts |
 | Testing workflows | Unavailable — they need a shell. They fail fast with a clear message; run them with the CLI |
 | Outputs | Each finished run's filenames are recorded per workspace, so `clear`/`rerun` (and the dashboard's "Clear outputs") delete exactly those files and nothing else. `clearWorkspace(path)` is the explicit delete-everything action |
 | Chat sessions | Each analysis run is stored under `/epf/home/sessions`; the Outputs → Chats tab streams follow-ups and keeps reasoning for replay. Chat needs write access (the results viewer is read-only) |

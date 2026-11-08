@@ -44,17 +44,9 @@ export interface VirtualFileSystem {
     remove(path: string, opts?: { recursive?: boolean }): Promise<void>;
 }
 
-export type EnvSetOptions = {
-    /**
-     * Web only: keep the value for this session instead of writing it to
-     * persistent storage. Ignored where the environment is already process-wide.
-     */
-    persist?: boolean;
-};
-
 export interface EnvProvider {
     get(name: string): string | undefined;
-    set(name: string, value: string, opts?: EnvSetOptions): void;
+    set(name: string, value: string): void;
     all(): Record<string, string>;
 }
 

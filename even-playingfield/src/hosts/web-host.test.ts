@@ -254,13 +254,13 @@ function configureS3(
     addressingStyle: "path" | "virtual" = "path",
     prefix = "",
 ): void {
-    target.web.env.set(S3_ENDPOINT_ENV_VAR, "https://s3.test", { persist: false });
-    target.web.env.set(S3_REGION_ENV_VAR, "auto", { persist: false });
-    target.web.env.set(S3_BUCKET_ENV_VAR, "bucket", { persist: false });
-    target.web.env.set(S3_PREFIX_ENV_VAR, prefix, { persist: false });
-    target.web.env.set(S3_ACCESS_KEY_ID_ENV_VAR, "key-id", { persist: false });
-    target.web.env.set(S3_SECRET_ACCESS_KEY_ENV_VAR, "secret-key", { persist: false });
-    target.web.env.set(S3_ADDRESSING_STYLE_ENV_VAR, addressingStyle, { persist: false });
+    target.web.env.set(S3_ENDPOINT_ENV_VAR, "https://s3.test");
+    target.web.env.set(S3_REGION_ENV_VAR, "auto");
+    target.web.env.set(S3_BUCKET_ENV_VAR, "bucket");
+    target.web.env.set(S3_PREFIX_ENV_VAR, prefix);
+    target.web.env.set(S3_ACCESS_KEY_ID_ENV_VAR, "key-id");
+    target.web.env.set(S3_SECRET_ACCESS_KEY_ENV_VAR, "secret-key");
+    target.web.env.set(S3_ADDRESSING_STYLE_ENV_VAR, addressingStyle);
 }
 
 async function createUrlConfigEpf(): Promise<WebEPF> {
@@ -877,7 +877,7 @@ describe("S3 config saving", () => {
 
     test("returns the public URL when a public base is configured", async () => {
         configureS3(epf);
-        epf.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.example.com/", { persist: false });
+        epf.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.example.com/");
 
         const saved = await epf.saveConfigToS3(REPO_CONFIG, { key: "shared/epf.toml" });
 
@@ -887,7 +887,7 @@ describe("S3 config saving", () => {
     test("uses the S3 ETag captured when the public URL was read", async () => {
         const remote = await createUrlConfigEpf();
         configureS3(remote);
-        remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/", { persist: false });
+        remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/");
         s3Objects.set("epf.toml", { body: REPO_CONFIG, etag: '"remote-1"' });
         await remote.loadConfigSource({ kind: "url", url: "https://configs.test/epf.toml" });
         requestLog.length = 0;
@@ -903,7 +903,7 @@ describe("S3 config saving", () => {
     test("rejects an overwrite when the object changed after it was read", async () => {
         const remote = await createUrlConfigEpf();
         configureS3(remote);
-        remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/", { persist: false });
+        remote.web.env.set(S3_PUBLIC_BASE_URL_ENV_VAR, "https://configs.test/");
         s3Objects.set("epf.toml", { body: REPO_CONFIG, etag: '"v1"' });
         await remote.loadConfigSource({ kind: "url", url: "https://configs.test/epf.toml" });
         // Another person saves between our read and our save.

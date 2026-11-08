@@ -1,15 +1,13 @@
 /** `EnvProvider` over `process.env` — the CLI / compiled-binary implementation. */
 
-import type { EnvProvider, EnvSetOptions } from "../types.ts";
+import type { EnvProvider } from "../types.ts";
 
 export class BunEnvProvider implements EnvProvider {
     get(name: string): string | undefined {
         return process.env[name];
     }
 
-    // `persist` has no meaning for a process environment: values live until the
-    // process exits either way.
-    set(name: string, value: string, _opts?: EnvSetOptions): void {
+    set(name: string, value: string): void {
         process.env[name] = value;
     }
 

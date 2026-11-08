@@ -60,7 +60,7 @@
 		try {
 			// Saving the URL in the environment variable is the explicit record of
 			// the user's choice, even when the config turns out to be invalid.
-			epfSession.setEnv(CONFIG_URL_ENV_VAR, url, true);
+			epfSession.setEnv(CONFIG_URL_ENV_VAR, url);
 			await epfSession.loadConfigSource({ kind: "url", url });
 			stripSharedConfig();
 			pendingSharedUrl = null;

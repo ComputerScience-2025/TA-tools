@@ -1,13 +1,13 @@
 /**
  * `EnvProvider` for the browser.
  *
- * Values marked `persist: true` (and configured with "remember" in the UI) are
- * written to a JSON blob in `localStorage`. Everything else — secrets by
- * default — lives in memory for the tab session only.
+ * Values are written to a JSON blob in `localStorage`, alongside the config
+ * drafts and library files that already keep API keys. A read-only session
+ * keeps values in memory but never writes them.
  */
 
 import { defaultStorage } from "./web-state.ts";
-import type { EnvProvider, EnvSetOptions } from "../types.ts";
+import type { EnvProvider } from "../types.ts";
 import type { KeyValueStorage } from "./web-state.ts";
 
 export const WEB_ENV_KEY = "epf.env";
@@ -21,8 +21,7 @@ export class WebEnvProvider implements EnvProvider {
     private readonly storage: KeyValueStorage;
     private readonly key: string;
     private readonly persist: boolean;
-    private persisted: Record<string, string> = {};
-    private readonly session: Record<string, string> = {};
+    private values: Record<string, string> = {};
 
     constructor(
         storage: KeyValueStorage = defaultStorage(),
@@ -32,67 +31,29 @@ export class WebEnvProvider implements EnvProvider {
         this.storage = storage;
         this.key = key;
         this.persist = options.persist ?? true;
-        this.persisted = this.load();
+        this.values = this.load();
     }
 
     get(name: string): string | undefined {
-        return this.session[name] ?? this.persisted[name];
+        return this.values[name];
     }
 
-    set(name: string, value: string, opts?: EnvSetOptions): void {
-        if (opts?.persist === true) {
-            this.persisted[name] = value;
-            delete this.session[name];
+    set(name: string, value: string): void {
+        if (value.length === 0) {
+            delete this.values[name];
         } else {
-            // Moving a value out of persistence must not leave the old copy behind.
-            delete this.persisted[name];
-            if (value.length === 0) {
-                delete this.session[name];
-            } else {
-                this.session[name] = value;
-            }
+            this.values[name] = value;
         }
         this.save();
     }
 
     clear(name: string): void {
-        delete this.persisted[name];
-        delete this.session[name];
+        delete this.values[name];
         this.save();
     }
 
-    /**
-     * Move remembered values back to session-only storage, so a disabled
-     * "remember" setting leaves nothing behind in the browser. Without `names`,
-     * every remembered value is forgotten.
-     */
-    clearPersisted(names?: readonly string[]): void {
-        const targets = names ?? Object.keys(this.persisted);
-        let changed = false;
-        for (const name of targets) {
-            const value = this.persisted[name];
-            if (value === undefined) {
-                continue;
-            }
-            delete this.persisted[name];
-            // Keep the value usable for this session, matching the session-only default.
-            if (!(name in this.session)) {
-                this.session[name] = value;
-            }
-            changed = true;
-        }
-        if (changed) {
-            this.save();
-        }
-    }
-
     all(): Record<string, string> {
-        return { ...this.persisted, ...this.session };
-    }
-
-    /** Names currently remembered in `localStorage`. */
-    persistedNames(): string[] {
-        return Object.keys(this.persisted);
+        return { ...this.values };
     }
 
     private load(): Record<string, string> {
@@ -122,7 +83,7 @@ export class WebEnvProvider implements EnvProvider {
             return;
         }
         try {
-            this.storage.setItem(this.key, JSON.stringify(this.persisted));
+            this.storage.setItem(this.key, JSON.stringify(this.values));
         } catch {
             // Storage blocked or full: values stay available for this session.
         }

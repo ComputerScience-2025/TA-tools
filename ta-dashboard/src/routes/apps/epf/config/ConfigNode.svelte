@@ -14,7 +14,6 @@
 		suggestRecordKey
 	} from "$lib/epf/config-model.ts";
 
-	let revealed = $state<Record<string, boolean>>({});
 	let keyDrafts = $state<Record<string, string>>({});
 	let keyErrors = $state<Record<string, string>>({});
 	let rowErrors = $state<Record<string, string>>({});
@@ -642,8 +641,6 @@
 		</div>
 	{:else if descriptor.kind === "string"}
 		{@const value = stringValue(path)}
-		{@const secret = descriptor.widget === "password" || descriptor.widget === "header-value"}
-		{@const pointer = pathKey(path)}
 		<div class="field">
 			{#if !compact}
 				<div class="is-flex is-justify-content-space-between is-align-items-center">
@@ -666,30 +663,12 @@
 					disabled={configEditor.readOnly}
 					onInput={(next) => configEditor.setField(path, next, descriptor)}
 				/>
-			{:else if secret}
-				<div class="field has-addons">
-					<div class="control is-expanded">
-						<input
-							id={id}
-							class="input is-small is-family-monospace"
-							type={revealed[pointer] === true ? "text" : "password"}
-							autocomplete="off"
-							value={value}
-							oninput={(event) => setString(path, descriptor, event)}
-						/>
-					</div>
-					<div class="control">
-						<button
-							type="button"
-							class="button is-small"
-							onclick={() => (revealed[pointer] = revealed[pointer] !== true)}
-						>{revealed[pointer] === true ? "Hide" : "Show"}</button>
-					</div>
-				</div>
 			{:else}
 				<input
 					id={id}
 					class="input is-small"
+					autocomplete="off"
+					spellcheck="false"
 					value={value}
 					oninput={(event) => setString(path, descriptor, event)}
 				/>

@@ -26,9 +26,9 @@ describe("config form descriptors", () => {
         expect(findDescriptor(descriptor, ["version"])?.hidden).toBe(true);
     });
 
-    test("marks reference, textarea, password and seed widgets", () => {
+    test("marks reference, textarea and seed widgets", () => {
         const descriptor = root();
-        expect(findDescriptor(descriptor, ["llm", "providers", "openrouter", "api_key"])?.widget).toBe("password");
+        expect(findDescriptor(descriptor, ["llm", "providers", "openrouter", "api_key"])?.widget).toBeUndefined();
         expect(findDescriptor(descriptor, ["llm", "models", "demo", "provider"])?.widget).toBe("provider-reference");
         expect(findDescriptor(descriptor, ["analysis_workflows", 0, "model"])?.widget).toBe("model-reference");
         expect(findDescriptor(descriptor, ["analysis_workflows", 0, "prompt"])?.widget).toBe("textarea");

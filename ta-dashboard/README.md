@@ -35,9 +35,10 @@ bun run preview    # preview the production build
   Config tab; over the cap, the least recently used unpinned workspace is removed.
 - "Clear outputs" (the Outputs tab, or `clear`/`rerun` in the console) deletes exactly the files runs recorded for that
   workspace, so fetched sources and the config stay. Deleting a whole workspace is a separate action in the Source tab.
-- Secrets (GitHub PATs) stay in memory unless "remember on this device" is enabled. Turning "remember" off clears what was
-  stored. Only the tab that owns the storage lock writes; every other tab mounts the same IndexedDB store read-only, so the
-  saved files stay visible while writes are refused (the EPF page offers "Take over storage" once the owning tab closes).
+- Environment values (including GitHub PATs and S3 credentials) are stored as plain text in this browser, like the
+  config drafts and library files. Only the tab that owns the storage lock writes; every other tab mounts the same
+  IndexedDB store read-only, so the saved files stay visible while writes are refused (the EPF page offers "Take over
+  storage" once the owning tab closes).
 - Testing workflows need a shell and therefore only run in the CLI.
 
 ## Deployment note

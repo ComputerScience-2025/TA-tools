@@ -109,7 +109,7 @@ describe("createWebPlatform", () => {
         await expect(web.fs.remove("/lock-test/workspaces/ws")).rejects.toThrow(/read-only/);
 
         web.state.saveNow();
-        web.env.set("EPF_DOWNLOAD_GITHUB_PAT", "session-only", { persist: true });
+        web.env.set("EPF_DOWNLOAD_GITHUB_PAT", "session-only");
         expect(storage.getItem("epf.platform")).toBeNull();
         expect(storage.getItem("epf.env")).toBeNull();
     });
@@ -141,7 +141,7 @@ describe("createWebPlatform", () => {
             state.activeWorkspace = "/ro-test/workspaces/hacked";
         }, { immediate: true });
         viewer.state.saveNow();
-        viewer.env.set("EPF_DOWNLOAD_GITHUB_PAT", "session-secret", { persist: true });
+        viewer.env.set("EPF_DOWNLOAD_GITHUB_PAT", "session-secret");
 
         expect(storage.getItem("epf.platform")).toBe(writtenBlob);
         expect(storage.getItem("epf.env")).toBeNull();

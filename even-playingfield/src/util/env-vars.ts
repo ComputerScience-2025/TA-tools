@@ -13,8 +13,6 @@ export type EnvVarSpec = {
     name: string;
     description: string;
     scope: EnvVarScope;
-    /** Masked in the UI and kept session-only unless the user opts in. */
-    secret?: boolean;
     /** Shown as placeholder text in the UI. */
     example?: string;
 };
@@ -76,9 +74,8 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     },
     {
         name: S3_SECRET_ACCESS_KEY_ENV_VAR,
-        description: "Secret access key. Stays in memory unless secret remembering is enabled.",
+        description: "Secret access key for the S3-compatible endpoint.",
         scope: "storage",
-        secret: true,
         example: "secret access key",
     },
     {
@@ -97,7 +94,6 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
         name: GITHUB_PAT_ENV_VAR,
         description: "GitHub token used to fetch repositories. Optional for public repositories.",
         scope: "download",
-        secret: true,
         example: "ghp_…",
     },
 ];

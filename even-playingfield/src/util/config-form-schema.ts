@@ -28,11 +28,9 @@ export type ConfigFieldKind =
 
 export type ConfigWidget =
     | "textarea"
-    | "password"
     | "provider-reference"
     | "model-reference"
-    | "seed"
-    | "header-value";
+    | "seed";
 
 export type ConfigFieldDescriptor = {
     /** Property name, or null for the root/array item/record value. */
@@ -67,8 +65,6 @@ const TEXTAREA_PATHS = new Set([
 ]);
 
 const WIDGET_PATHS: Record<string, ConfigWidget> = {
-    "llm.providers.*.api_key": "password",
-    "llm.providers.*.headers.*": "header-value",
     "llm.models.*.provider": "provider-reference",
     "llm.models.*.seed": "seed",
     "analysis_workflows.*.model": "model-reference",
