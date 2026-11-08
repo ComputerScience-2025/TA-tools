@@ -6,8 +6,25 @@
  * lets the layout stay a UI concern and the behaviour stay tested.
  */
 
+import { configHref } from "./routes.ts";
+
 export const SHARED_CONFIG_PARAM = "EPF_CONFIG_URL";
 export const SHARED_CONFIG_ALIAS = "config";
+
+/**
+ * Build the shareable link that offers a config URL through the page hash.
+ *
+ * The origin is passed in rather than read from the DOM, and only http(s)
+ * URLs are accepted — the same rule {@link sharedConfigUrlFromHash} applies —
+ * so a generated link always parses back to the value that went in.
+ */
+export function sharedConfigLink(url: string, origin: string): string | null {
+    const value = url.trim();
+    if (!/^https?:\/\//i.test(value)) {
+        return null;
+    }
+    return `${origin}${configHref("environment")}#?${SHARED_CONFIG_PARAM}=${encodeURIComponent(value)}`;
+}
 
 /** Config URL encoded in a location hash, or null when there is none. */
 export function sharedConfigUrlFromHash(hash: string): string | null {

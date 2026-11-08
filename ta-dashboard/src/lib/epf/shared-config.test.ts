@@ -1,6 +1,30 @@
 import { describe, expect, test } from "bun:test";
 
-import { sharedConfigUrlFromHash, stripSharedConfigHash } from "./shared-config.ts";
+import { sharedConfigLink, sharedConfigUrlFromHash, stripSharedConfigHash } from "./shared-config.ts";
+
+describe("sharedConfigLink", () => {
+    test("builds a hash link that parses back to the same URL", () => {
+        const link = sharedConfigLink("https://example.com/epf.toml", "https://tools.example.test");
+        expect(link).toBe(
+            "https://tools.example.test/apps/epf/config/environment#?EPF_CONFIG_URL=https%3A%2F%2Fexample.com%2Fepf.toml"
+        );
+        expect(sharedConfigUrlFromHash(link!.slice(link!.indexOf("#")))).toBe(
+            "https://example.com/epf.toml"
+        );
+    });
+
+    test("trims the URL before encoding it", () => {
+        expect(sharedConfigLink("  https://example.com/a.toml  ", "https://tools.example.test")).toBe(
+            "https://tools.example.test/apps/epf/config/environment#?EPF_CONFIG_URL=https%3A%2F%2Fexample.com%2Fa.toml"
+        );
+    });
+
+    test("rejects missing and non-http values", () => {
+        expect(sharedConfigLink("", "https://tools.example.test")).toBeNull();
+        expect(sharedConfigLink("javascript:alert(1)", "https://tools.example.test")).toBeNull();
+        expect(sharedConfigLink("file:///tmp/epf.toml", "https://tools.example.test")).toBeNull();
+    });
+});
 
 describe("sharedConfigUrlFromHash", () => {
     test("reads the primary parameter", () => {
